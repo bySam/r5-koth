@@ -2,7 +2,7 @@ global function _CustomTDM_Init
 global function _RegisterLocation
 
 global table<entity,bool> readyList = {}
-global int choice = 2
+global int choice = 1
 
 
 enum eTDMState
@@ -34,7 +34,7 @@ void function _CustomTDM_Init()
     AddClientCommandCallback("next_round", ClientCommand_NextRound)
     AddClientCommandCallback("ready", ClientCommand_Ready)
     AddClientCommandCallback("change_team", ClientCommand_ChangeTeam)
-    //AddClientCommandCallback("select_map", ClientCommand_SelectMap(""))
+    AddClientCommandCallback("select_map",ClientCommand_SelectMap)
 
 
     thread RunTDM()
@@ -130,8 +130,6 @@ void function VotingPhase()
         }
 
 
-        int choice = 2
-        file.selectedLocation = file.locationSettings[choice]
         int ready_count = 0
         while(ready_count < GetPlayerArray().len())
         {
@@ -142,6 +140,9 @@ void function VotingPhase()
             }
         wait 1      
         }
+
+        
+        file.selectedLocation = file.locationSettings[choice]
     }
 }
 
@@ -235,11 +236,20 @@ bool function ClientCommand_ChangeTeam(entity player, array<string> args)
     return true
 }
 
-/*bool function ClientCommand_SelectMap(entity player, array<string> args)
+bool function ClientCommand_SelectMap(entity player, array<string> args)
 {
-    switch(args)
-
-}*/
+    switch(args[0])
+    {
+    case "TTV":
+        print("Case = TTV")
+        choice = 2
+        break
+    default:
+        print("You must choose a map! Refinery/Banana/TTV/XXXX")
+        break
+    }
+    return true
+}
 
 
 
