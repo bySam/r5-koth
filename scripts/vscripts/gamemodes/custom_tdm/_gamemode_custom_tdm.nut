@@ -136,7 +136,6 @@ void function VotingPhase()
         {
             foreach(item in readyList)
             {
-                print("item: " + item)
                 if(item == true) ready_count ++
             }
         wait 1      
@@ -154,15 +153,16 @@ void function StartRound()
     {   
         if( IsValid( player ) )
         {
-            
+            Remote_CallFunction_NonReplay(player, "ServerCallback_TDM_DoAnnouncement", 0, eTDMAnnounce.ROUND_START)
             player.FreezeControlsOnServer()
             thread ScreenFadeFromBlack(player, 0.5, 0.5)
             TpPlayerToSpawnPoint(player)
-            Remote_CallFunction_NonReplay(player, "ServerCallback_TDM_DoAnnouncement", 5, eTDMAnnounce.ROUND_START)
+            Message(player,"Starting in 10","", 7,"")
 
-            wait 4
-            //Remote_CallFunction_NonReplay(player, "ServerCallback_TDM_DoAnnouncement", 5, eTDMAnnounce.ABC)
-            wait 1
+
+            wait 7
+            Message(player,"Starting in 3","", 3,"")
+            wait 3
             ClearInvincible(player)
             DeployAndEnableWeapons(player)
             player.UnforceStand()  
@@ -227,6 +227,7 @@ bool function ClientCommand_Ready(entity player, array<string> args)
 {
     if (readyList.player == false) readyList.player <- true
     else readyList.player <- false
+    print("\n\n\nReady: " + readyList.player)
     return true
 }
 
@@ -235,38 +236,44 @@ bool function ClientCommand_ChangeTeam(entity player, array<string> args)
     int team = player.GetTeam()
     if (team == TEAM_MILITIA) SetTeam(player, TEAM_IMC)
     if (team == TEAM_IMC) SetTeam(player, TEAM_MILITIA)
+    print("\n\n\nYou're now on team: " + team)
     return true
 }
 
 bool function ClientCommand_SelectMap(entity player, array<string> args) //CRASHES IF NO ARG !!!
 {
     if( !IsServer() ) return false;
-    switch(args[0])
+    if(args.len() != 0)
     {
-    case "TTV":
-        print("Case = TTV")
-        choice = 2
-        break
-    case "LavaCity":
-        choice=5
-        break
-    case "Ambush":
-        choice=6
-        break
-    case "Overlook":
-        choice=7
-        break
-    default: 
-        print("You must choose a map! Refinery/Banana/TTV/XXXX")
-        break
-    }
+        switch(args[0])
+        {
+        case "TTV":
+            print("Case = TTV")
+            choice = 2
+            break
+        case "LavaCity":
+            choice=5
+            break
+        case "Ambush":
+            choice=6
+            break
+        case "Overlook":
+            choice=7
+            break
+        default: 
+            print("\n\n\nInvalid map! LavaCity/Overlook/Ambush")
+            break
+        }
+    } 
+    if(args.len() == 0) {
+          print("\n\n\nYou must choose a map! LavaCity/Overlook/Ambush")
+      }  
     return true
-}
 
+}   
 bool function Clientcommand_SpawnDeathbox(entity player, array<string> args)
 {
-    entity box = SURVIVAL_CreateDeathBox(player, false)
-    //AddToDeathBox(armor_pickup_lv3,box)
+    spawnDeathbox(player)
     return true
 }
 
@@ -650,7 +657,6 @@ void function ControlPointTriggerSetup()
             controlpoint.SetOrigin(<10396.31, 5856.99, -4233.91>)
             break;
         case(5): //Lava City
-            print("case 5!!!")
             controlpoint.SetRadius(400)
             controlpoint.SetAboveHeight(500)
             controlpoint.SetBelowHeight(500)
@@ -684,8 +690,23 @@ void function ControlPointTriggerSetup()
     thread controlPointLogic(controlpoint, circle)
 }
 
+void function Message( entity player, string text, string subText = "", float duration = 7.0, string sound = "" )
+{
+    string sendMessage
+    for ( int textType = 0 ; textType < 2 ; textType++ )
+    {
+        sendMessage = textType == 0 ? text : subText
 
-
+        for ( int i = 0; i < sendMessage.len(); i++ )
+        {
+            Remote_CallFunction_NonReplay( player, "Dev_BuildClientMessage", textType, sendMessage[i] )
+        }
+    }
+    Remote_CallFunction_NonReplay( player, "Dev_PrintClientMessage", duration )
+    //if ( sound != "" )
+        //thread EmitSoundOnEntityOnlyToPlayer( player, player, sound )   
+        
+}
 
 
 
@@ -696,7 +717,7 @@ void function controlPointLogic(entity controlpoint, entity circle)
     //while(true)
     while(GetGameState() == eGameState.Playing)
     {
-        wait 0.5
+        wait 1
         int imc_count = 0
         int mil_count = 0
         foreach (player in GetPlayerArray_Alive())
@@ -709,11 +730,9 @@ void function controlPointLogic(entity controlpoint, entity circle)
                 {
                     case TEAM_IMC:
                         imc_count++
-                        print("imc += 1")
                         break;
                     case TEAM_MILITIA:
                         mil_count++
-                        print("mil += 1")
                         break;
                     default:
                         break;
@@ -731,7 +750,6 @@ void function controlPointLogic(entity controlpoint, entity circle)
             //Make capture notifications here
             if(capProgress <= 1.0) capProgress = capProgress + 0.2
         } 
-        print(capProgress)
         if(capProgress <= -1.0) capStatus = "IMC"
         if(capProgress >= 1.0) capStatus = "MIL"
 
@@ -743,10 +761,10 @@ void function controlPointLogic(entity controlpoint, entity circle)
             int score = GameRules_GetTeamScore(TEAM_IMC)
             if (!(score == 99 && mil_count != 0))
             {            
-            checkIfWon(score)
-            score++
+            checkIfWon(score, TEAM_MILITIA)
+            score ++
             GameRules_SetTeamScore(TEAM_IMC,score)
-            if(IsValid(circle)) circle.kv.rendercolor = "40 75 150"
+            if(IsValid(circle)) circle.kv.rendercolor = "20 20 80"
             }
         }
 
@@ -755,22 +773,22 @@ void function controlPointLogic(entity controlpoint, entity circle)
             int score = GameRules_GetTeamScore(TEAM_MILITIA)
             if (!(score == 99 && imc_count != 0))
             {   
-                checkIfWon(score)
-                score++
+                checkIfWon(score, TEAM_MILITIA)
+                score ++
                 GameRules_SetTeamScore(TEAM_MILITIA,score)
-                if(IsValid(circle)) circle.kv.rendercolor = "150 40 40"
+                if(IsValid(circle)) circle.kv.rendercolor = "80 20 20"
             }
 
         }
 
         if(capStatus == "neutral" && GetGameState() == eGameState.Playing)
         {   
-            if(IsValid(circle)) circle.kv.rendercolor = "100 100 100"
+            if(IsValid(circle)) circle.kv.rendercolor = "110 110 110"
         }
 
         if(capStatus == "contested" && GetGameState() == eGameState.Playing)
         {   
-            if(IsValid(circle)) circle.kv.rendercolor = "60 60 5"
+            if(IsValid(circle)) circle.kv.rendercolor = "80 80 5"
         }
 
 
@@ -784,13 +802,17 @@ void function controlPointLogic(entity controlpoint, entity circle)
 }
 
 
-void function checkIfWon(int score)
+void function checkIfWon(int score, int team)
 {
     if(score >= SCORE_GOAL_TO_WIN)
     {
+        string teamname = ""
         foreach( entity player in GetPlayerArray() )
         {
+            if (team == 2) teamname = "Red"
+            if (team == 3) teamname = "Blue"
             thread EmitSoundOnEntityOnlyToPlayer( player, player, "diag_ap_aiNotify_winnerFound" )
+            Message(player, teamname + " team has won the game!","", 6,"")
             MakeInvincible(player)
             HolsterAndDisableWeapons( player )
         }
@@ -801,3 +823,17 @@ void function checkIfWon(int score)
 }
 
 
+void function spawnDeathbox(entity player)
+{
+    /*entity box = SURVIVAL_CreateDeathBox(player, false)
+    array<entity> lootArray = GetEntArrayByClass_Expensive("prop_survival")
+    //entity armour = lootArray.find(armor_pickup_lv3)
+    print("lootarray length: " + lootArray.len())
+    //print(armour)
+        foreach( loot in lootArray )
+        {
+            print("abc")
+            AddToDeathBox( loot, box )
+        }
+    //AddToDeathBox("armor_pickup_lv3",box)*/
+}

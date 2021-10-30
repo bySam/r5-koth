@@ -4,7 +4,6 @@ global function ServerCallback_TDM_DoAnnouncement
 global function ServerCallback_TDM_SetSelectedLocation
 global function ServerCallback_TDM_DoLocationIntroCutscene
 global function ServerCallback_TDM_PlayerKilled
-global function CreateCaptureNotificationRUI
 
 global function Cl_RegisterLocation
 
@@ -14,8 +13,6 @@ struct {
     array choices
     array<LocationSettings> locationSettings
     var scoreRui
-    var teamRui
-    var contestRui
 } file;
 
 
@@ -62,71 +59,8 @@ void function MakeScoreRUI()
     WaitForever()
 }
 
-void function MakeContestRUI()
-{
-    if ( file.contestRui != null)
-    {
-        RuiSetString( file.contestRui, "messageText", "Contested!" )
-        return
-    }
-    clGlobal.levelEnt.EndSignal( "CloseScoreRUI" )
-
-    UISize screenSize = GetScreenSize()
-    var screenAlignmentTopo = RuiTopology_CreatePlane( <( screenSize.width *-0.078),( screenSize.height * -0.385 ), 0>, <float( screenSize.width ), 0, 0>, <0, float( screenSize.height ), 0>, false )
-    var rui = RuiCreate( $"ui/announcement_quick_right.rpak", screenAlignmentTopo, RUI_DRAW_HUD, RUI_SORT_SCREENFADE + 1 )
-    
-    RuiSetGameTime( rui, "startTime", Time() )
-    RuiSetString( rui, "messageText", "Contested!" )
-    RuiSetString( rui, "messageSubText", "")
-    RuiSetFloat( rui, "duration", 9999999 )
-    RuiSetFloat3( rui, "eventColor", SrgbToLinear( <255, 255, 0> ) )
-    
-    file.contestRui = rui
-    
-    OnThreadEnd(
-        function() : ( rui )
-        {
-            RuiDestroy( rui )
-            file.contestRui = null
-        }
-    )
-    
-    WaitForever()
-}
 
 
-/*
-void function MakeTeamRUI()
-{
-    if ( file.teamRui != null)
-    {
-        RuiSetString( file.scoreRui, "messageText", "" )
-        return
-    }
-    clGlobal.levelEnt.EndSignal( "CloseScoreRUI" )
-
-    UISize screenSize = GetScreenSize()
-    var screenAlignmentTopo = RuiTopology_CreatePlane( <( screenSize.width *-0.078),( screenSize.height * -0.2 ), 0>, <float( screenSize.width ), 0, 0>, <0, float( screenSize.height ), 0>, false )
-    var rui = RuiCreate( $"ui/announcement_quick_right.rpak", screenAlignmentTopo, RUI_DRAW_HUD, RUI_SORT_SCREENFADE + 1 )
-    
-    RuiSetGameTime( rui, "startTime", Time() )
-    RuiSetString( rui, "messageText", "" )
-    RuiSetString( rui, "messageSubText", "")
-    RuiSetFloat( rui, "duration", 9999999 )
-    RuiSetFloat3( rui, "eventColor", SrgbToLinear( <128, 188, 255> ) )
-    
-    file.teamRui = rui
-    
-    OnThreadEnd(
-        function() : ( rui )
-        {
-            RuiDestroy( rui )
-            file.teamRui = null
-        }
-    )
-    
-    WaitForever()
-}*/
 
 
 
@@ -140,23 +74,15 @@ void function ServerCallback_TDM_DoAnnouncement(float duration, int type)
         case eTDMAnnounce.ROUND_START:
         {
             thread MakeScoreRUI();
-            //thread MakeTeamRUI();
-            message = "Round starting in 10 seconds"
+            message = ""
             subtext = ""
             break
         }
         case eTDMAnnounce.VOTING_PHASE:
         {
             clGlobal.levelEnt.Signal( "CloseScoreRUI" )
-            message = "King of The Hill"
-            subtext = "@d0dgerz"
-            break
-        }
-        case eTDMAnnounce.CONTEST:
-        {
-            thread MakeContestRUI();
-            message = "CONTESTED!"
-            subtext = ""
+            message = "Pre-game"
+            subtext = "@d0dgerz King of the Hill"
             break
         }
         case eTDMAnnounce.MAP_FLYOVER:
@@ -178,16 +104,6 @@ void function ServerCallback_TDM_DoAnnouncement(float duration, int type)
 }
 
 
-var function CreateCaptureNotificationRUI(entity team, float duration)
-{
-    var rui = RuiCreate( $"ui/announcement_objective.rpak", clGlobal.topoFullScreen, RUI_DRAW_HUD, RUI_SORT_SCREENFADE + 1 )
-    RuiSetGameTime( rui, "startTime", Time() )
-    RuiSetBool(rui, "adsFade", true)
-    RuiSetString(rui, "hint", "POINT CAPTURED")
-    RuiSetFloat( rui, "duration", duration )
-
-    wait duration
-}
 
 
 void function ServerCallback_TDM_DoLocationIntroCutscene()
@@ -269,20 +185,6 @@ void function ServerCallback_TDM_PlayerKilled() //rename???
 {
     if(file.scoreRui)
         RuiSetString( file.scoreRui, "messageText",GameRules_GetTeamScore(TEAM_IMC) + "%  |  " + GameRules_GetTeamScore(TEAM_MILITIA) + "%" );
-
-
-    /*if (file.teamRui)
-    {
-        if (a.GetTeam() == TEAM_IMC)
-        {
-            string message = ""
-            foreach (player in GetPlayerArrayOfTeam(TEAM_IMC))
-            {
-                message = message + player
-            }
-            RuiSetString( file.teamRui, "messageText", message);
-        }
-    }*/
 }
 
 
