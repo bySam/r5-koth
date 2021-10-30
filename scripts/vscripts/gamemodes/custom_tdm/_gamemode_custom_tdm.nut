@@ -2,7 +2,7 @@ global function _CustomTDM_Init
 global function _RegisterLocation
 
 global table<entity,bool> readyList = {}
-global int choice = 1
+global int choice = 3
 
 
 enum eTDMState
@@ -31,10 +31,11 @@ void function _CustomTDM_Init()
     AddCallback_OnPlayerKilled(void function(entity victim, entity attacker, var damageInfo) {thread _OnPlayerDied(victim, attacker, damageInfo)})
 
 
-    AddClientCommandCallback("next_round", ClientCommand_NextRound)
+    AddClientCommandCallback("end_game", ClientCommand_EndGame)
     AddClientCommandCallback("ready", ClientCommand_Ready)
     AddClientCommandCallback("change_team", ClientCommand_ChangeTeam)
     AddClientCommandCallback("select_map",ClientCommand_SelectMap)
+    AddClientCommandCallback("spawn_deathbox",Clientcommand_SpawnDeathbox)
 
 
     thread RunTDM()
@@ -124,7 +125,7 @@ void function VotingPhase()
             _HandleRespawn(player)
             MakeInvincible(player)
     		HolsterAndDisableWeapons( player )
-            Remote_CallFunction_NonReplay(player, "ServerCallback_TDM_DoAnnouncement", 2, eTDMAnnounce.VOTING_PHASE)
+            Remote_CallFunction_NonReplay(player, "ServerCallback_TDM_DoAnnouncement", 6, eTDMAnnounce.VOTING_PHASE)
             TpPlayerToSpawnPoint(player)
             player.UnfreezeControlsOnServer();      
         }
@@ -141,10 +142,10 @@ void function VotingPhase()
         wait 1      
         }
 
-        
+
         file.selectedLocation = file.locationSettings[choice]
     }
-}
+}   
 
 void function StartRound() 
 {
@@ -194,8 +195,7 @@ void function StartRound()
 	}
     file.tdmState = eTDMState.IN_PROGRESS
 
-    file.bubbleBoundary.Destroy()
-    //file.lobbyButtons.Destroy()    //DOES NOT WORK!!!!!!!!!
+    if(IsValid(file.bubbleBoundary)) file.bubbleBoundary.Destroy()
 }
 
 void function _HandleRespawnOnLand(entity player)
@@ -214,10 +214,12 @@ void function ScreenFadeToFromBlack(entity player, float fadeTime = 1, float hol
         ScreenFadeFromBlack(player, fadeTime / 2, holdTime / 2)
 }
 
-bool function ClientCommand_NextRound(entity player, array<string> args)
+bool function ClientCommand_EndGame(entity player, array<string> args)
 {
     if( !IsServer() ) return false;
+    if(IsValid(file.bubbleBoundary)) file.bubbleBoundary.Destroy()
     file.tdmState = eTDMState.WINNER_DECIDED
+    SetGameState(eGameState.MapVoting)
     return true
 }
 
@@ -236,18 +238,35 @@ bool function ClientCommand_ChangeTeam(entity player, array<string> args)
     return true
 }
 
-bool function ClientCommand_SelectMap(entity player, array<string> args)
+bool function ClientCommand_SelectMap(entity player, array<string> args) //CRASHES IF NO ARG !!!
 {
+    if( !IsServer() ) return false;
     switch(args[0])
     {
     case "TTV":
         print("Case = TTV")
         choice = 2
         break
-    default:
+    case "LavaCity":
+        choice=5
+        break
+    case "Ambush":
+        choice=6
+        break
+    case "Overlook":
+        choice=7
+        break
+    default: 
         print("You must choose a map! Refinery/Banana/TTV/XXXX")
         break
     }
+    return true
+}
+
+bool function Clientcommand_SpawnDeathbox(entity player, array<string> args)
+{
+    entity box = SURVIVAL_CreateDeathBox(player, false)
+    //AddToDeathBox(armor_pickup_lv3,box)
     return true
 }
 
@@ -300,7 +319,6 @@ void function _OnPlayerDied(entity victim, entity attacker, var damageInfo)
 
             if(!IsValid(victim)) return
             
-
             victim.p.storedWeapons = StoreWeapons(victim)
             
             float reservedTime = max(1, Deathmatch_GetRespawnDelay() - 1)// so we dont immediately go to killcam
@@ -312,6 +330,7 @@ void function _OnPlayerDied(entity victim, entity attacker, var damageInfo)
                 victim.StartObserverMode( OBS_MODE_IN_EYE )
                 Remote_CallFunction_NonReplay(victim, "ServerCallback_KillReplayHud_Activate")
             }
+            
             
             wait max(0, Deathmatch_GetRespawnDelay() - reservedTime)
 
@@ -447,8 +466,8 @@ void function MonitorBubbleBoundary(entity bubbleShield, vector bubbleCenter, fl
             if(!IsValid(player)) continue
             if(Distance(player.GetOrigin(), bubbleCenter) > bubbleRadius)
             {
-				Remote_CallFunction_Replay( player, "ServerCallback_PlayerTookDamage", 0, 0, 0, 0, DF_BYPASS_SHIELD | DF_DOOMED_HEALTH_LOSS, eDamageSourceId.deathField, null )
-                player.TakeDamage( int( Deathmatch_GetOOBDamagePercent() / 100 * float( player.GetMaxHealth() ) ), null, null, { scriptType = DF_BYPASS_SHIELD | DF_DOOMED_HEALTH_LOSS, damageSourceId = eDamageSourceId.deathField } )
+				//Remote_CallFunction_Replay( player, "ServerCallback_PlayerTookDamage", 0, 0, 0, 0, DF_BYPASS_SHIELD | DF_DOOMED_HEALTH_LOSS, eDamageSourceId.deathField, null )
+                //player.TakeDamage( int( Deathmatch_GetOOBDamagePercent() / 100 * float( player.GetMaxHealth() ) ), null, null, { scriptType = DF_BYPASS_SHIELD | DF_DOOMED_HEALTH_LOSS, damageSourceId = eDamageSourceId.deathField } )
             }
         }
         wait 1
@@ -621,21 +640,45 @@ bool function ClientCommand_GiveWeapon(entity player, array<string> args)
 
 void function ControlPointTriggerSetup()
 {
-    print("creating controlpoint")
     entity controlpoint = CreateEntity("trigger_cylinder")
-    controlpoint.SetRadius(500)
-    controlpoint.SetAboveHeight(500)
-    controlpoint.SetBelowHeight(500)
-    controlpoint.SetOrigin(<10396.31, 5856.99, -4233.91>)
+    switch(choice)
+    { 
+        case(1): //TTV
+            controlpoint.SetRadius(500)
+            controlpoint.SetAboveHeight(500)
+            controlpoint.SetBelowHeight(500)
+            controlpoint.SetOrigin(<10396.31, 5856.99, -4233.91>)
+            break;
+        case(5): //Lava City
+            print("case 5!!!")
+            controlpoint.SetRadius(400)
+            controlpoint.SetAboveHeight(500)
+            controlpoint.SetBelowHeight(500)
+            controlpoint.SetOrigin(<24427, -27555, -3453>)
+            break;
+        case(6): //Ambush
+            controlpoint.SetRadius(350)
+            controlpoint.SetAboveHeight(500)
+            controlpoint.SetBelowHeight(500)
+            controlpoint.SetOrigin(<5687, 26748, -4540>)
+            break;
+        case(7): //Overlook
+            controlpoint.SetRadius(235)
+            controlpoint.SetAboveHeight(180)
+            controlpoint.SetBelowHeight(50)
+            controlpoint.SetOrigin(<29265,10405,-3475>)
+            break;
+
+    }
     DispatchSpawn(controlpoint)
 
-
     entity circle = CreateEntity( "prop_dynamic" )
+    circle.SetOrigin(controlpoint.GetOrigin())
     circle.SetValueForModelKey( BUBBLE_BUNKER_SHIELD_COLLISION_MODEL )
-    circle.SetOrigin(<10396.31, 5856.99, -4233.91>)
-    circle.SetModelScale(500 / 235)
-    circle.kv.CollisionGroup = 0
+    circle.SetModelScale(controlpoint.GetRadius() / 235)
     circle.kv.rendercolor = "100 100 100"
+    circle.kv.CollisionGroup = 0
+
     DispatchSpawn( circle )
 
     thread controlPointLogic(controlpoint, circle)
@@ -644,21 +687,24 @@ void function ControlPointTriggerSetup()
 
 
 
+
+
 void function controlPointLogic(entity controlpoint, entity circle)
 {
     string capStatus = "neutral"
+    float capProgress = 0.0
     //while(true)
     while(GetGameState() == eGameState.Playing)
-        {
-        wait 1/3
+    {
+        wait 0.5
         int imc_count = 0
         int mil_count = 0
         foreach (player in GetPlayerArray_Alive())
         {   
             if (!player.IsPlayer()) continue
+            if(!IsValid(controlpoint)) continue
             if(Distance(player.GetOrigin(), controlpoint.GetOrigin()) < controlpoint.GetRadius())
             {
-                print("player.GetTeam(): " + player.GetTeam())
                 switch (player.GetTeam()) 
                 {
                     case TEAM_IMC:
@@ -678,37 +724,56 @@ void function controlPointLogic(entity controlpoint, entity circle)
 
         if (imc_count > 0 && mil_count == 0 && capStatus != "IMC")
         {
-            foreach(player in GetPlayerArray())
-            {
-                //Remote_CallFunction_NonReplay(player, "CreateCaptureNotificationRUI", 2.0) //BROKEN ATM
-            }            
-            capStatus = "IMC"
+            if(capProgress >= -1.0) capProgress = capProgress - 0.2  
         }
         if (mil_count > 0 && imc_count == 0 && capStatus != "MIL")
         {
-            //Capture notifications
-            capStatus = "MIL"
+            //Make capture notifications here
+            if(capProgress <= 1.0) capProgress = capProgress + 0.2
         } 
+        print(capProgress)
+        if(capProgress <= -1.0) capStatus = "IMC"
+        if(capProgress >= 1.0) capStatus = "MIL"
+
+        if(imc_count !=0 && mil_count !=0 && capStatus=="neutral") capStatus="contested"
 
 
         if(capStatus == "IMC" && GetGameState() == eGameState.Playing)
         {
             int score = GameRules_GetTeamScore(TEAM_IMC)
+            if (!(score == 99 && mil_count != 0))
+            {            
+            checkIfWon(score)
             score++
             GameRules_SetTeamScore(TEAM_IMC,score)
             if(IsValid(circle)) circle.kv.rendercolor = "40 75 150"
-            checkIfWon(score)
+            }
         }
 
         if(capStatus == "MIL" && GetGameState() == eGameState.Playing)
         {   
-            print("MIL-case")
             int score = GameRules_GetTeamScore(TEAM_MILITIA)
-            score++
-            GameRules_SetTeamScore(TEAM_MILITIA,score)
-            if(IsValid(circle)) circle.kv.rendercolor = "150 40 40"
-            checkIfWon(score)
+            if (!(score == 99 && imc_count != 0))
+            {   
+                checkIfWon(score)
+                score++
+                GameRules_SetTeamScore(TEAM_MILITIA,score)
+                if(IsValid(circle)) circle.kv.rendercolor = "150 40 40"
+            }
+
         }
+
+        if(capStatus == "neutral" && GetGameState() == eGameState.Playing)
+        {   
+            if(IsValid(circle)) circle.kv.rendercolor = "100 100 100"
+        }
+
+        if(capStatus == "contested" && GetGameState() == eGameState.Playing)
+        {   
+            if(IsValid(circle)) circle.kv.rendercolor = "60 60 5"
+        }
+
+
 
 
         foreach(a in GetPlayerArray())
@@ -716,17 +781,8 @@ void function controlPointLogic(entity controlpoint, entity circle)
             Remote_CallFunction_NonReplay(a, "ServerCallback_TDM_PlayerKilled") //lol
         }
     }   
+}
 
-
-/*
-    OnThreadEnd(
-        function() : ( controlpoint )
-        {
-            controlpoint.Destroy()
-        } )
-
-    WaitForever()*/
-}   
 
 void function checkIfWon(int score)
 {
@@ -735,7 +791,10 @@ void function checkIfWon(int score)
         foreach( entity player in GetPlayerArray() )
         {
             thread EmitSoundOnEntityOnlyToPlayer( player, player, "diag_ap_aiNotify_winnerFound" )
+            MakeInvincible(player)
+            HolsterAndDisableWeapons( player )
         }
+        wait 10
         file.tdmState = eTDMState.WINNER_DECIDED
         SetGameState(eGameState.MapVoting)
     } 
