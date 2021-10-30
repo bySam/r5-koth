@@ -4,6 +4,9 @@ global function _RegisterLocation
 global table<entity,bool> readyList = {}
 global int choice = 3
 
+#if SERVER
+const asset TRAIN_POI_BEAM = $"P_ar_hot_zone_far"
+#endif //
 
 enum eTDMState
 {
@@ -15,12 +18,10 @@ struct {
     int tdmState = eTDMState.IN_PROGRESS
     array<entity> playerSpawnedProps
     LocationSettings& selectedLocation
-
     array<LocationSettings> locationSettings
-
-    
+    array<ItemFlavor> characters
     array<string> whitelistedWeapons
-
+    int Picked = 8
     entity bubbleBoundary
 } file;
 
@@ -383,6 +384,7 @@ void function _HandleRespawn(entity player, bool forceGive = false)
         if(Equipment_GetRespawnKitEnabled())
         {
             DecideRespawnPlayer(player, true)
+            CharSelect(player)
             player.TakeOffhandWeapon(OFFHAND_TACTICAL)
             player.TakeOffhandWeapon(OFFHAND_ULTIMATE)
             array<StoredWeapon> weapons = [
@@ -408,10 +410,12 @@ void function _HandleRespawn(entity player, bool forceGive = false)
             if(!player.p.storedWeapons.len())
             {
                 DecideRespawnPlayer(player, true)
+                CharSelect(player) 
             }
             else
             {
                 DecideRespawnPlayer(player, false)
+                CharSelect(player)
                 GiveWeaponsFromStoredArray(player, player.p.storedWeapons)
             }
             
@@ -685,6 +689,10 @@ void function ControlPointTriggerSetup()
     circle.kv.rendercolor = "100 100 100"
     circle.kv.CollisionGroup = 0
 
+    //PrecacheParticleSystem( TRAIN_POI_BEAM )
+    //entity trainBeam =  StartParticleEffectInWorld_ReturnEntity(GetParticleSystemIndex( TRAIN_POI_BEAM ), controlpoint.GetOrigin(), <90,0,0> )
+    //trainBeam.SetParent(controlpoint)
+
     DispatchSpawn( circle )
 
     thread controlPointLogic(controlpoint, circle)
@@ -836,4 +844,12 @@ void function spawnDeathbox(entity player)
             AddToDeathBox( loot, box )
         }
     //AddToDeathBox("armor_pickup_lv3",box)*/
+}
+
+
+void function CharSelect(entity player)
+{
+file.characters = clone GetAllCharacters()
+ItemFlavor Picked = file.characters[file.Picked]
+CharacterSelect_AssignCharacter( ToEHI( player ), Picked )
 }
