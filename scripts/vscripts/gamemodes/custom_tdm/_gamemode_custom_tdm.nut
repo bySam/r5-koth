@@ -39,6 +39,8 @@ void function _CustomTDM_Init()
     AddClientCommandCallback("change_team", ClientCommand_ChangeTeam)
     AddClientCommandCallback("select_map",ClientCommand_SelectMap)
     AddClientCommandCallback("spawn_deathbox",ClientCommand_SpawnDeathbox)
+    AddClientCommandCallback("change_skin",ClientCommand_ChangeSkin)
+    AddClientCommandCallback("destroy_doors",ClientCommand_DestroyDoors)
 
 
     thread RunTDM()
@@ -79,9 +81,10 @@ LocPair function _GetVotingLocation()
 void function _OnPropDynamicSpawned(entity prop)
 {
     file.playerSpawnedProps.append(prop)
+    //array<entity> playerarray = GetPlayerArray()
     foreach(player in GetPlayerArray())
     {
-        Remote_CallFunction_NonReplay(player, "ServerCallback_PointCreated", prop) 
+        Remote_CallFunction_NonReplay(player, "ServerCallback_PointCreated", prop)
     }
 }
 
@@ -184,7 +187,7 @@ void function StartRound()
     }
 
     AddSpawnCallback("prop_dynamic", _OnPropDynamicSpawned)
-    //AddSpawnCallback("trigger_cylinder", _OnPropDynamicSpawned)
+    //  AddSpawnCallback("trigger_cylinder", _OnPropDynamicSpawned)
 
     
     ControlPointTriggerSetup()
@@ -245,6 +248,7 @@ bool function ClientCommand_ChangeTeam(entity player, array<string> args)
     int team = player.GetTeam()
     if (team == TEAM_MILITIA) SetTeam(player, TEAM_IMC)
     if (team == TEAM_IMC) SetTeam(player, TEAM_MILITIA)
+    CharSelect(player)
     print("\n\n\nYou're now on team: " + team)
     return true
 }
@@ -254,20 +258,23 @@ bool function ClientCommand_SelectMap(entity player, array<string> args)
     if( !IsServer() ) return false;
     if(args.len() != 0)
     {
-        switch(args[0])
+        switch(args[0].tolower())
         {
-        case "TTV":
+        case "ttv":
             print("Case = TTV")
             choice = 2
             break
-        case "LavaCity":
+        case "lavacity":
             choice=5
             break
-        case "Ambush":
+        case "ambush":
             choice=6
             break
-        case "Overlook":
+        case "overlook":
             choice=7
+            break
+        case "thermal":
+            choice = 8
             break
         default: 
             print("\n\n\nInvalid map! LavaCity/Overlook/Ambush")
@@ -287,6 +294,22 @@ bool function ClientCommand_SpawnDeathbox(entity player, array<string> args)
     return true
 }
 
+bool function ClientCommand_ChangeSkin(entity player, array<string> args)
+{
+    player.SetModel( $"mdl/humans/class/medium/combat_dummie_medium.rmdl" )
+    player.SetSkin(args[0].tointeger())
+    //player.SetModelOverride( $"mdl/humans/class/medium/combat_dummie_medium.rmdl") 
+    return true
+}
+
+bool function ClientCommand_DestroyDoors(entity player, array<string> args)
+{
+    foreach (door in GetAllPropDoors())
+    {
+        door.Destroy()
+    }
+    return true
+}
 
 
 
@@ -368,7 +391,7 @@ void function _OnPlayerDied(entity victim, entity attacker, var damageInfo)
         void functionref() attackerHandleFunc = void function() : (victim, attacker, damageInfo)  {
             if(IsValid(attacker) && attacker.IsPlayer() && IsAlive(attacker) && attacker != victim)
             {
-                PlayerRestoreHP(attacker, 100, Equipment_GetDefaultShieldHP())
+                PlayerRestoreHP(attacker, 25, Equipment_GetDefaultShieldHP())
             }
         }
         
@@ -690,6 +713,11 @@ void function ControlPointTriggerSetup()
             controlpoint.SetBelowHeight(50)
             controlpoint.SetOrigin(<29265,10405,-3475>)
             break;
+        case(8): //Thermal
+            controlpoint.SetRadius(300)
+            controlpoint.SetAboveHeight(200)
+            controlpoint.SetBelowHeight(50)
+            controlpoint.SetOrigin(< -200097, -20531.63, -4202.88>)
 
     }
     DispatchSpawn(controlpoint)
@@ -789,7 +817,7 @@ void function controlPointLogic(entity controlpoint, entity circle)
             checkIfWon(score, TEAM_MILITIA)
             score ++
             GameRules_SetTeamScore(TEAM_IMC,score)
-            if(IsValid(circle)) circle.kv.rendercolor = "20 20 80"
+            if(IsValid(circle)) circle.kv.rendercolor = "100 100 15"
             }
         }
 
@@ -835,7 +863,7 @@ void function checkIfWon(int score, int team)
         foreach( entity player in GetPlayerArray() )
         {
             if (team == 2) teamname = "Red"
-            if (team == 3) teamname = "Blue"
+            if (team == 3) teamname = "Yellow"
             thread EmitSoundOnEntityOnlyToPlayer( player, player, "diag_ap_aiNotify_winnerFound" )
             Message(player, teamname + " team has won the game!","", 6,"")
             MakeInvincible(player)
@@ -867,9 +895,32 @@ void function spawnDeathbox(entity player)
 
 void function CharSelect(entity player)
 {
-file.characters = clone GetAllCharacters()
-ItemFlavor Picked = file.characters[file.Picked]
-CharacterSelect_AssignCharacter( ToEHI( player ), Picked )
+    entity dummy = CreateEntity( "npc_dummie" )
+    SetSpawnOption_AISettings( dummy, "npc_dummie_combat" )
+    DispatchSpawn(dummy)
+
+
+    ItemFlavor playerCharacter = LoadoutSlot_GetItemFlavor( ToEHI( dummy ), Loadout_CharacterClass() )
+    ItemFlavor skin = LoadoutSlot_GetItemFlavor( ToEHI( dummy ), Loadout_CharacterSkin( playerCharacter ) )
+
+    asset bodyModel = CharacterSkin_GetBodyModel(skin)
+    asset armsModel = CharacterSkin_GetArmsModel(skin)
+
+
+
+
+
+    file.characters = clone GetAllCharacters()
+    ItemFlavor Picked = file.characters[file.Picked]
+    CharacterSelect_AssignCharacter( ToEHI( player ), Picked )
+    player.SetBodyModelOverride(bodyModel)
+    player.SetBodyModelOverride(armsModel)
+    player.SetModel( $"mdl/humans/class/medium/combat_dummie_medium.rmdl" )
+    if(player.GetTeam() == TEAM_MILITIA) player.SetSkin(1)
+    if(player.GetTeam() == TEAM_IMC) player.SetSkin(4)   
+
+
 }
 
 
+//

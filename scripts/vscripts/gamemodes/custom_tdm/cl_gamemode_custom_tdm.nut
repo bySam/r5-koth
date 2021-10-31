@@ -200,45 +200,43 @@ void function ServerCallback_PointCreated(entity circle)
 
     entity localViewPlayer = GetLocalViewPlayer()
 
-
-
-    //if ( !Trophy_ShouldShowIcon( localViewPlayer, circle ) )
-    //   return
-
+    //var rui = AddOverheadIcon( parentEnt, $"mdl/Robots/mobile_hardpoint/mobile_hardpoint_static.rmdl", false, $"mdl/extras_3" )
     var rui = AddOverheadIcon( circle, RESPAWN_BEACON_ICON, false, $"ui/overhead_icon_respawn_beacon.rpak" )
     RuiSetFloat2( rui, "iconSize", <60,60,0> )
-    RuiSetFloat3(rui, "iconColor", SrgbToLinear(<255, 255, 0>))
+    //RuiSetFloat3(rui, "iconColor", SrgbToLinear(<255, 255, 0>))
     RuiSetFloat( rui, "distanceFade", 50000 )
     RuiSetBool( rui, "adsFade", true )
     RuiSetString( rui, "hint", "Point" )
 
 
 
-    var ruix = CreateCockpitRui( $"ui/health_use_progress.rpak", HUD_Z_BASE )
+    /*var ruix = CreateCockpitRui( $"ui/health_use_progress.rpak", HUD_Z_BASE )
     RuiSetBool( ruix, "isVisible", true )
     //RuiSetImage( ruix, "", icon )
     RuiSetGameTime( ruix, "startTime", Time() )
     RuiSetGameTime( ruix, "endTime", Time() + 5 )
-    RuiSetString( ruix, "hintKeyboardMouse", "Capturing point" )
+    RuiSetString( ruix, "hintKeyboardMouse", "Capturing point" )*/
 
 
-
-    /*OnThreadEnd(
-        function() : ( rui )
-        {
-            RuiDestroy( rui )
-        }
-    )*/
 
     //WaitForever()
 }
 
 
 
-/*
+//void function ServerCallback_PointCapturing()
+
+
+
+
+
+
+
+
+
 var function CreateTemporarySpawnRUI(entity parentEnt, float duration)
 {
-	var rui = AddOverheadIcon( parentEnt, RESPAWN_BEACON_ICON, false, $"ui/overhead_icon_respawn_beacon.rpak" )
+    var rui = AddOverheadIcon( parentEnt, RESPAWN_BEACON_ICON, false, $"ui/overhead_icon_respawn_beacon.rpak" )
 	RuiSetFloat2( rui, "iconSize", <80,80,0> )
 	RuiSetFloat( rui, "distanceFade", 50000 )
 	RuiSetBool( rui, "adsFade", true )
@@ -248,5 +246,5 @@ var function CreateTemporarySpawnRUI(entity parentEnt, float duration)
 
     parentEnt.Destroy()
 }
-*/
+
 

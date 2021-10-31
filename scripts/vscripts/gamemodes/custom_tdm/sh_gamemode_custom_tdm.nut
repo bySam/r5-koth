@@ -447,6 +447,17 @@ void function Sh_CustomTDM_Init()
                     <0,0,3000>
                     )
                 )
+            Shared_RegisterLocation(
+                NewLocationSettings(
+                    "Thermal",
+                    [
+
+
+
+                    ],
+                    <0,0,3000>
+                    )
+                )
         
         default:
             Assert(false, "No TDM locations found for map!")
