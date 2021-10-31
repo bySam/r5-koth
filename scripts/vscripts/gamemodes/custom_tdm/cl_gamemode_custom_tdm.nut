@@ -4,6 +4,7 @@ global function ServerCallback_TDM_DoAnnouncement
 global function ServerCallback_TDM_SetSelectedLocation
 global function ServerCallback_TDM_DoLocationIntroCutscene
 global function ServerCallback_TDM_PlayerKilled
+global function ServerCallback_PointCreated
 
 global function Cl_RegisterLocation
 
@@ -64,6 +65,10 @@ void function MakeScoreRUI()
 
 
 
+
+
+
+
 void function ServerCallback_TDM_DoAnnouncement(float duration, int type)
 {
     string message = ""
@@ -74,6 +79,7 @@ void function ServerCallback_TDM_DoAnnouncement(float duration, int type)
         case eTDMAnnounce.ROUND_START:
         {
             thread MakeScoreRUI();
+            //thread Point_CreateHUDMarker();
             message = ""
             subtext = ""
             break
@@ -187,6 +193,45 @@ void function ServerCallback_TDM_PlayerKilled() //rename???
         RuiSetString( file.scoreRui, "messageText",GameRules_GetTeamScore(TEAM_IMC) + "%  |  " + GameRules_GetTeamScore(TEAM_MILITIA) + "%" );
 }
 
+void function ServerCallback_PointCreated(entity circle)
+{
+    //circle.EndSignal( "OnDestroy" )
+
+
+    entity localViewPlayer = GetLocalViewPlayer()
+
+
+
+    //if ( !Trophy_ShouldShowIcon( localViewPlayer, circle ) )
+    //   return
+
+    var rui = AddOverheadIcon( circle, RESPAWN_BEACON_ICON, false, $"ui/overhead_icon_respawn_beacon.rpak" )
+    RuiSetFloat2( rui, "iconSize", <60,60,0> )
+    RuiSetFloat3(rui, "iconColor", SrgbToLinear(<255, 255, 0>))
+    RuiSetFloat( rui, "distanceFade", 50000 )
+    RuiSetBool( rui, "adsFade", true )
+    RuiSetString( rui, "hint", "Point" )
+
+
+
+    var ruix = CreateCockpitRui( $"ui/health_use_progress.rpak", HUD_Z_BASE )
+    RuiSetBool( ruix, "isVisible", true )
+    //RuiSetImage( ruix, "", icon )
+    RuiSetGameTime( ruix, "startTime", Time() )
+    RuiSetGameTime( ruix, "endTime", Time() + 5 )
+    RuiSetString( ruix, "hintKeyboardMouse", "Capturing point" )
+
+
+
+    /*OnThreadEnd(
+        function() : ( rui )
+        {
+            RuiDestroy( rui )
+        }
+    )*/
+
+    //WaitForever()
+}
 
 
 
