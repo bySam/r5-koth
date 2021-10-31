@@ -38,8 +38,7 @@ void function _CustomTDM_Init()
     AddClientCommandCallback("ready", ClientCommand_Ready)
     AddClientCommandCallback("change_team", ClientCommand_ChangeTeam)
     AddClientCommandCallback("select_map",ClientCommand_SelectMap)
-    AddClientCommandCallback("spawn_deathbox",Clientcommand_SpawnDeathbox)
-
+    AddClientCommandCallback("spawn_deathbox",ClientCommand_SpawnDeathbox)
 
 
     thread RunTDM()
@@ -55,6 +54,7 @@ void function _CustomTDM_Init()
 void function _RegisterLocation(LocationSettings locationSettings)
 {
     file.locationSettings.append(locationSettings)
+
 }
 
 LocPair function _GetVotingLocation()
@@ -79,13 +79,15 @@ LocPair function _GetVotingLocation()
 void function _OnPropDynamicSpawned(entity prop)
 {
     file.playerSpawnedProps.append(prop)
-    
+    foreach(player in GetPlayerArray())
+    {
+        Remote_CallFunction_NonReplay(player, "ServerCallback_PointCreated", prop) 
+    }
 }
+
 void function RunTDM()
 {
     WaitForGameState(eGameState.Playing)
-    //AddSpawnCallback("prop_dynamic", _OnPropDynamicSpawned)
-
     for(; ; )
     {
         VotingPhase();
@@ -153,6 +155,7 @@ void function VotingPhase()
 void function StartRound() 
 {
     SetGameState(eGameState.Playing)
+    int countdown = 3
     foreach(player in GetPlayerArray())
     {   
         if( IsValid( player ) )
@@ -161,12 +164,14 @@ void function StartRound()
             player.FreezeControlsOnServer()
             thread ScreenFadeFromBlack(player, 0.5, 0.5)
             TpPlayerToSpawnPoint(player)
-            Message(player,"Starting in 10","", 7,"")
-
-
-            wait 7
-            Message(player,"Starting in 3","", 3,"")
-            wait 3
+            while (countdown != 1)
+            { 
+                Message(player,"Starting in " + countdown,"", 2,"")
+                wait 1
+                countdown--
+            }
+            Message(player,"Starting in " + countdown,"", 1.25,"")
+            wait 1.75
             ClearInvincible(player)
             DeployAndEnableWeapons(player)
             player.UnforceStand()  
@@ -179,7 +184,7 @@ void function StartRound()
     }
 
     AddSpawnCallback("prop_dynamic", _OnPropDynamicSpawned)
-    AddSpawnCallback("trigger_cylinder", _OnPropDynamicSpawned)
+    //AddSpawnCallback("trigger_cylinder", _OnPropDynamicSpawned)
 
     
     ControlPointTriggerSetup()
@@ -244,7 +249,7 @@ bool function ClientCommand_ChangeTeam(entity player, array<string> args)
     return true
 }
 
-bool function ClientCommand_SelectMap(entity player, array<string> args) //CRASHES IF NO ARG !!!
+bool function ClientCommand_SelectMap(entity player, array<string> args)
 {
     if( !IsServer() ) return false;
     if(args.len() != 0)
@@ -275,19 +280,14 @@ bool function ClientCommand_SelectMap(entity player, array<string> args) //CRASH
     return true
 
 }   
-bool function Clientcommand_SpawnDeathbox(entity player, array<string> args)
+
+bool function ClientCommand_SpawnDeathbox(entity player, array<string> args)
 {
     spawnDeathbox(player)
     return true
 }
 
-/*
-bool function Clientcommand_ChooseCharacter(entity player, array<string> args)
-{
-    ItemFlavor Picked = GetAllCharacters()[args.string.tointeger()]
-    //CharacterSelect_AssignCharacter( ToEHI( player ), Picked )
-    return true
-}*/
+
 
 
 
@@ -702,11 +702,11 @@ void function ControlPointTriggerSetup()
     circle.kv.CollisionGroup = 0
 
 
+
     DispatchSpawn( circle )
 
 
-
-
+    //thread Point_CreateHUDMarker(circle)
     thread controlPointLogic(controlpoint, circle)
 }
 
@@ -723,8 +723,8 @@ void function Message( entity player, string text, string subText = "", float du
         }
     }
     Remote_CallFunction_NonReplay( player, "Dev_PrintClientMessage", duration )
-    //if ( sound != "" )
-        //thread EmitSoundOnEntityOnlyToPlayer( player, player, sound )   
+    if ( sound != "" )
+        thread EmitSoundOnEntityOnlyToPlayer( player, player, sound )   
         
 }
 
@@ -744,6 +744,8 @@ void function controlPointLogic(entity controlpoint, entity circle)
         {   
             if (!player.IsPlayer()) continue
             if(!IsValid(controlpoint)) continue
+            
+            
             if(Distance(player.GetOrigin(), controlpoint.GetOrigin()) < controlpoint.GetRadius())
             {
                 switch (player.GetTeam()) 
@@ -757,6 +759,9 @@ void function controlPointLogic(entity controlpoint, entity circle)
                     default:
                         break;
                 }    
+                if (imc_count > 0 && mil_count == 0 && capStatus != "IMC") thread EmitSoundOnEntityOnlyToPlayer( player, player, "player_hitbeep" )
+                if (mil_count > 0 && imc_count == 0 && capStatus != "MIL") thread EmitSoundOnEntityOnlyToPlayer( player, player, "player_hitbeep" )
+
             }
         }
                 
@@ -847,21 +852,15 @@ void function spawnDeathbox(entity player)
 
 {    
     entity box = SURVIVAL_CreateDeathBox(player, true)
+    //Does nothing
+    //box.Highlight_ShowOutline( 10.0 )
+    //box.Highlight_SetParam( HIGHLIGHT_CONTEXT_NEUTRAL, 1, <999, 1, 0> ) 
     
-    /*
-    -- Redundant I think --
-    box.Solid()
-    box.SetUsable()
-    box.SetUsableValue( USABLE_BY_ALL | USABLE_CUSTOM_HINTS )
-    */
 
     LootData data = SURVIVAL_Loot_GetLootDataByRef("armor_pickup_lv3")
 
     entity drop = SpawnGenericLoot( data.ref, box.GetOrigin(), <0,0,0>, 1 )
 
-
-    //if(IsValid(drop)) print("Drop is valid")
-    //if(IsValid(box)) print("Deathbox is valid")
     AddToDeathBox(drop,box)
 }
 
@@ -872,3 +871,5 @@ file.characters = clone GetAllCharacters()
 ItemFlavor Picked = file.characters[file.Picked]
 CharacterSelect_AssignCharacter( ToEHI( player ), Picked )
 }
+
+
