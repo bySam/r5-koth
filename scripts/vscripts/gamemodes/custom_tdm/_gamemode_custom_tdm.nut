@@ -1,6 +1,8 @@
 global function _CustomTDM_Init
 global function _RegisterLocation
 
+
+
 global table<entity,bool> readyList = {}
 global int choice = 3
 
@@ -37,6 +39,7 @@ void function _CustomTDM_Init()
     AddClientCommandCallback("change_team", ClientCommand_ChangeTeam)
     AddClientCommandCallback("select_map",ClientCommand_SelectMap)
     AddClientCommandCallback("spawn_deathbox",Clientcommand_SpawnDeathbox)
+
 
 
     thread RunTDM()
@@ -278,6 +281,14 @@ bool function Clientcommand_SpawnDeathbox(entity player, array<string> args)
     return true
 }
 
+/*
+bool function Clientcommand_ChooseCharacter(entity player, array<string> args)
+{
+    ItemFlavor Picked = GetAllCharacters()[args.string.tointeger()]
+    //CharacterSelect_AssignCharacter( ToEHI( player ), Picked )
+    return true
+}*/
+
 
 
 void function _OnPlayerConnected(entity player)
@@ -326,7 +337,8 @@ void function _OnPlayerDied(entity victim, entity attacker, var damageInfo)
         void functionref() victimHandleFunc = void function() : (victim, attacker, damageInfo) {
 
             if(!IsValid(victim)) return
-            
+            spawnDeathbox(victim)
+
             victim.p.storedWeapons = StoreWeapons(victim)
             
             float reservedTime = max(1, Deathmatch_GetRespawnDelay() - 1)// so we dont immediately go to killcam
@@ -689,11 +701,11 @@ void function ControlPointTriggerSetup()
     circle.kv.rendercolor = "100 100 100"
     circle.kv.CollisionGroup = 0
 
-    //PrecacheParticleSystem( TRAIN_POI_BEAM )
-    //entity trainBeam =  StartParticleEffectInWorld_ReturnEntity(GetParticleSystemIndex( TRAIN_POI_BEAM ), controlpoint.GetOrigin(), <90,0,0> )
-    //trainBeam.SetParent(controlpoint)
 
     DispatchSpawn( circle )
+
+
+
 
     thread controlPointLogic(controlpoint, circle)
 }
@@ -832,18 +844,25 @@ void function checkIfWon(int score, int team)
 
 
 void function spawnDeathbox(entity player)
-{
-    /*entity box = SURVIVAL_CreateDeathBox(player, false)
-    array<entity> lootArray = GetEntArrayByClass_Expensive("prop_survival")
-    //entity armour = lootArray.find(armor_pickup_lv3)
-    print("lootarray length: " + lootArray.len())
-    //print(armour)
-        foreach( loot in lootArray )
-        {
-            print("abc")
-            AddToDeathBox( loot, box )
-        }
-    //AddToDeathBox("armor_pickup_lv3",box)*/
+
+{    
+    entity box = SURVIVAL_CreateDeathBox(player, true)
+    
+    /*
+    -- Redundant I think --
+    box.Solid()
+    box.SetUsable()
+    box.SetUsableValue( USABLE_BY_ALL | USABLE_CUSTOM_HINTS )
+    */
+
+    LootData data = SURVIVAL_Loot_GetLootDataByRef("armor_pickup_lv3")
+
+    entity drop = SpawnGenericLoot( data.ref, box.GetOrigin(), <0,0,0>, 1 )
+
+
+    //if(IsValid(drop)) print("Drop is valid")
+    //if(IsValid(box)) print("Deathbox is valid")
+    AddToDeathBox(drop,box)
 }
 
 
