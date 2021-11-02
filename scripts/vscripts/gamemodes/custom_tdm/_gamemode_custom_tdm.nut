@@ -1,14 +1,25 @@
 global function _CustomTDM_Init
 global function _RegisterLocation
+table playersInfo
 
 
 
 global table<entity,bool> readyList = {}
-global int choice = 3
+global int choice = 6 //Default map pick = Ambush
 
-#if SERVER
-const asset TRAIN_POI_BEAM = $"P_ar_hot_zone_far"
-#endif //
+struct PlayerInfo 
+{
+    string name
+    int team
+    int score
+    int deaths
+    float kd
+    int damage
+    int lastLatency
+}
+
+
+
 
 enum eTDMState
 {
@@ -25,6 +36,11 @@ struct {
     array<string> whitelistedWeapons
     int Picked = 8
     entity bubbleBoundary
+    entity previousChampion
+    entity previousChallenger
+    int deathPlayersCounter=0
+    int maxPlayers
+    int maxTeams
 } file;
 
 
@@ -32,15 +48,16 @@ void function _CustomTDM_Init()
 {
     AddCallback_OnClientConnected( void function(entity player) { thread _OnPlayerConnected(player) } )
     AddCallback_OnPlayerKilled(void function(entity victim, entity attacker, var damageInfo) {thread _OnPlayerDied(victim, attacker, damageInfo)})
-
+    
 
     AddClientCommandCallback("end_game", ClientCommand_EndGame)
     AddClientCommandCallback("ready", ClientCommand_Ready)
     AddClientCommandCallback("change_team", ClientCommand_ChangeTeam)
     AddClientCommandCallback("select_map",ClientCommand_SelectMap)
     AddClientCommandCallback("spawn_deathbox",ClientCommand_SpawnDeathbox)
-    AddClientCommandCallback("change_skin",ClientCommand_ChangeSkin)
     AddClientCommandCallback("destroy_doors",ClientCommand_DestroyDoors)
+    AddClientCommandCallback("scoreboard", ClientCommand_Scoreboard)
+    AddClientCommandCallback("latency", ClientCommand_ShowLatency)
 
 
     thread RunTDM()
@@ -52,6 +69,31 @@ void function _CustomTDM_Init()
     }
 
 }
+
+void function _OnPropDynamicSpawned(entity prop)
+{
+    file.playerSpawnedProps.append(prop)
+
+
+
+    /*
+    //foreach(player in GetPlayerArray())
+    //{
+        //Remote_CallFunction_NonReplay(player, "ServerCallback_PointCreated", prop) //what the fuck is this
+    //}*/
+}
+
+
+void function DestroyPlayerProps()
+{
+    foreach(prop in file.playerSpawnedProps)
+    {
+        if(IsValid(prop))
+            prop.Destroy()
+    }
+    file.playerSpawnedProps.clear()
+}
+
 
 void function _RegisterLocation(LocationSettings locationSettings)
 {
@@ -78,16 +120,6 @@ LocPair function _GetVotingLocation()
     unreachable
 }
 
-void function _OnPropDynamicSpawned(entity prop)
-{
-    file.playerSpawnedProps.append(prop)
-    //array<entity> playerarray = GetPlayerArray()
-    foreach(player in GetPlayerArray())
-    {
-        Remote_CallFunction_NonReplay(player, "ServerCallback_PointCreated", prop)
-    }
-}
-
 void function RunTDM()
 {
     WaitForGameState(eGameState.Playing)
@@ -99,15 +131,6 @@ void function RunTDM()
     WaitForever()
 }
 
-void function DestroyPlayerProps()
-{
-    foreach(prop in file.playerSpawnedProps)
-    {
-        if(IsValid(prop))
-            prop.Destroy()
-    }
-    file.playerSpawnedProps.clear()
-}
 
 
 
@@ -134,12 +157,13 @@ void function VotingPhase()
             _HandleRespawn(player)
             MakeInvincible(player)
     		HolsterAndDisableWeapons( player )
-            Remote_CallFunction_NonReplay(player, "ServerCallback_TDM_DoAnnouncement", 6, eTDMAnnounce.VOTING_PHASE)
+            //Remote_CallFunction_NonReplay(player, "ServerCallback_TDM_DoAnnouncement", 6, eTDMAnnounce.VOTING_PHASE)
+            Message(player, "Pre-game", helpMessage(), 15)
             TpPlayerToSpawnPoint(player)
             player.UnfreezeControlsOnServer();      
         }
 
-
+        //HAHAHAH 
         int ready_count = 0
         while(ready_count < GetPlayerArray().len())
         {
@@ -158,7 +182,7 @@ void function VotingPhase()
 void function StartRound() 
 {
     SetGameState(eGameState.Playing)
-    int countdown = 3
+    int countdown = 10
     foreach(player in GetPlayerArray())
     {   
         if( IsValid( player ) )
@@ -167,14 +191,24 @@ void function StartRound()
             player.FreezeControlsOnServer()
             thread ScreenFadeFromBlack(player, 0.5, 0.5)
             TpPlayerToSpawnPoint(player)
-            while (countdown != 1)
+
+            while (countdown > 3)
             { 
                 Message(player,"Starting in " + countdown,"", 2,"")
                 wait 1
                 countdown--
             }
-            Message(player,"Starting in " + countdown,"", 1.25,"")
-            wait 1.75
+            while (countdown <= 3 && countdown != 1)
+            {
+                Message(player,"Starting in " + countdown,"", 2,"UI_Survival_Intro_LaunchCountDown_3Seconds")
+                wait 1
+                countdown--
+            }
+            Message(player,"Starting in " + countdown,"", 1,"UI_Survival_Intro_LaunchCountDown_3Seconds")
+            wait 1
+            thread EmitSoundOnEntityOnlyToPlayer(player,player,"UI_Survival_Intro_LaunchCountDown_Finish")
+
+
             ClearInvincible(player)
             DeployAndEnableWeapons(player)
             player.UnforceStand()  
@@ -195,9 +229,9 @@ void function StartRound()
 
     foreach(team, v in GetPlayerTeamCountTable())
     {
-        array<entity> squad = GetPlayerArrayOfTeam(team)
+        array<entity> squad = GetPlayerArrayOfTeam(team) //useless?
     }
-    float endTime = Time() + GetCurrentPlaylistVarFloat("round_time", 480)
+    float endTime = Time() + GetCurrentPlaylistVarFloat("round_time", 600)
 
     while( Time() <= endTime )
 	{
@@ -217,6 +251,75 @@ void function _HandleRespawnOnLand(entity player)
     //thread f()
     
 }
+
+void function _HandleRespawn(entity player, bool forceGive = false)
+{
+    if(!IsValid(player)) return
+
+    if( player.IsObserver())
+    {
+        player.StopObserverMode()
+        Remote_CallFunction_NonReplay(player, "ServerCallback_KillReplayHud_Deactivate")
+    }
+
+    if(!IsAlive(player) || forceGive)
+    {
+
+        if(Equipment_GetRespawnKitEnabled())
+        {
+            DecideRespawnPlayer(player, true)
+            CharSelect(player)
+            player.TakeOffhandWeapon(OFFHAND_TACTICAL)
+            player.TakeOffhandWeapon(OFFHAND_ULTIMATE)
+            array<StoredWeapon> weapons = [
+                Equipment_GetRespawnKit_PrimaryWeapon(),
+                Equipment_GetRespawnKit_SecondaryWeapon(),
+                Equipment_GetRespawnKit_Tactical(),
+                Equipment_GetRespawnKit_Ultimate()
+            ]
+
+
+
+            foreach (storedWeapon in weapons)
+            {
+                if ( !storedWeapon.name.len() ) continue
+                printl(storedWeapon.name + " " + storedWeapon.weaponType)
+                if( storedWeapon.weaponType == eStoredWeaponType.main)
+                    player.GiveWeapon( storedWeapon.name, storedWeapon.inventoryIndex, storedWeapon.mods )
+                else
+                    player.GiveOffhandWeapon( storedWeapon.name, storedWeapon.inventoryIndex, storedWeapon.mods )
+            }
+            player.SetActiveWeaponBySlot(eActiveInventorySlot.mainHand, WEAPON_INVENTORY_SLOT_PRIMARY_0)
+        }
+        else 
+        {
+            if(!player.p.storedWeapons.len())
+            {
+                DecideRespawnPlayer(player, true)
+                CharSelect(player) 
+            }
+            else
+            {
+                DecideRespawnPlayer(player, false)
+                CharSelect(player)
+                GiveWeaponsFromStoredArray(player, player.p.storedWeapons)
+            }
+            
+        }
+    }
+    
+
+    SetPlayerSettings(player, TDM_PLAYER_SETTINGS)
+    PlayerRestoreHP(player, 100, Equipment_GetDefaultShieldHP())
+                
+    TpPlayerToSpawnPoint(player)
+    thread GrantSpawnImmunity(player, 3)
+    
+}
+
+
+
+
 void function ScreenFadeToFromBlack(entity player, float fadeTime = 1, float holdTime = 1)
 {
     if( IsValid( player ) )
@@ -226,12 +329,28 @@ void function ScreenFadeToFromBlack(entity player, float fadeTime = 1, float hol
         ScreenFadeFromBlack(player, fadeTime / 2, holdTime / 2)
 }
 
+
+/*
+  _____ _      _____ ______ _   _ _______    _____ ____  __  __ __  __          _   _ _____   _____ 
+  / ____| |    |_   _|  ____| \ | |__   __|  / ____/ __ \|  \/  |  \/  |   /\   | \ | |  __ \ / ____|
+ | |    | |      | | | |__  |  \| |  | |    | |   | |  | | \  / | \  / |  /  \  |  \| | |  | | (___  
+ | |    | |      | | |  __| | . ` |  | |    | |   | |  | | |\/| | |\/| | / /\ \ | . ` | |  | |\___ \ 
+ | |____| |____ _| |_| |____| |\  |  | |    | |___| |__| | |  | | |  | |/ ____ \| |\  | |__| |____) |
+  \_____|______|_____|______|_| \_|  |_|     \_____\____/|_|  |_|_|  |_/_/    \_\_| \_|_____/|_____/ 
+  
+*/
+                                                                                                     
+                                                                                                     
+
+
 bool function ClientCommand_EndGame(entity player, array<string> args)
 {
     if( !IsServer() ) return false;
     if(IsValid(file.bubbleBoundary)) file.bubbleBoundary.Destroy()
+
     file.tdmState = eTDMState.WINNER_DECIDED
-    SetGameState(eGameState.MapVoting)
+    Message(player," FINAL SCOREBOARD ", "\n         Name: K | D | KD \n \n" + ScoreboardFinal(), 12, "UI_Menu_RoundSummary_Results")
+    SetGameState(eGameState.MapVoting) //Is this necessary?
     return true
 }
 
@@ -273,9 +392,10 @@ bool function ClientCommand_SelectMap(entity player, array<string> args)
         case "overlook":
             choice=7
             break
-        case "thermal":
+        case "towersmall":
             choice = 8
             break
+
         default: 
             print("\n\n\nInvalid map! LavaCity/Overlook/Ambush")
             break
@@ -290,15 +410,7 @@ bool function ClientCommand_SelectMap(entity player, array<string> args)
 
 bool function ClientCommand_SpawnDeathbox(entity player, array<string> args)
 {
-    spawnDeathbox(player)
-    return true
-}
-
-bool function ClientCommand_ChangeSkin(entity player, array<string> args)
-{
-    player.SetModel( $"mdl/humans/class/medium/combat_dummie_medium.rmdl" )
-    player.SetSkin(args[0].tointeger())
-    //player.SetModelOverride( $"mdl/humans/class/medium/combat_dummie_medium.rmdl") 
+    thread spawnDeathbox(player)
     return true
 }
 
@@ -311,6 +423,27 @@ bool function ClientCommand_DestroyDoors(entity player, array<string> args)
     return true
 }
 
+bool function ClientCommand_Scoreboard(entity player, array<string> args)
+//by michae\l/#1125
+{
+    float ping = player.GetLatency() * 1000 - 40
+    if(IsValid(player)) {
+        try{
+        Message(player, "SCOREBOARD", "\n Name:    K  |   D   |   KD   |   Damage dealt \n" + ScoreboardFinal() + "\n\nYour ping: " + ping.tointeger() + "ms.", 4)
+        }catch(e) {}
+    }
+    return true
+}
+
+bool function ClientCommand_ShowLatency(entity player, array<string> args)
+//by Retículo Endoplasmático#5955
+{
+try{
+    Message(player,"Latency board", LatencyBoard(), 8)
+    }catch(e) {}
+
+return true
+}
 
 
 
@@ -339,6 +472,13 @@ void function _OnPlayerConnected(entity player)
         player.UnfreezeControlsOnServer();
         break
     case eGameState.MapVoting:
+        _HandleRespawn(player)
+        MakeInvincible(player)
+        HolsterAndDisableWeapons( player )
+        //Remote_CallFunction_NonReplay(player, "ServerCallback_TDM_DoAnnouncement", 6, eTDMAnnounce.VOTING_PHASE)
+        Message(player, "Pre-game", helpMessage(), 15)
+        TpPlayerToSpawnPoint(player)
+        player.UnfreezeControlsOnServer(); 
         break
     default: 
         break
@@ -364,6 +504,7 @@ void function _OnPlayerDied(entity victim, entity attacker, var damageInfo)
 
             victim.p.storedWeapons = StoreWeapons(victim)
             
+            Message(victim,"Killed by " + attacker, "", 1.5, "")
             float reservedTime = max(1, Deathmatch_GetRespawnDelay() - 1)// so we dont immediately go to killcam
             wait reservedTime
             if(Spectator_GetReplayIsEnabled() && IsValid(victim) && ShouldSetObserverTarget( attacker ))
@@ -403,66 +544,6 @@ void function _OnPlayerDied(entity victim, entity attacker, var damageInfo)
     }
 }
 
-void function _HandleRespawn(entity player, bool forceGive = false)
-{
-    if(!IsValid(player)) return
-
-    if( player.IsObserver())
-    {
-        player.StopObserverMode()
-        Remote_CallFunction_NonReplay(player, "ServerCallback_KillReplayHud_Deactivate")
-    }
-
-    if(!IsAlive(player) || forceGive)
-    {
-
-        if(Equipment_GetRespawnKitEnabled())
-        {
-            DecideRespawnPlayer(player, true)
-            CharSelect(player)
-            player.TakeOffhandWeapon(OFFHAND_TACTICAL)
-            player.TakeOffhandWeapon(OFFHAND_ULTIMATE)
-            array<StoredWeapon> weapons = [
-                Equipment_GetRespawnKit_PrimaryWeapon(),
-                Equipment_GetRespawnKit_SecondaryWeapon(),
-                Equipment_GetRespawnKit_Tactical(),
-                Equipment_GetRespawnKit_Ultimate()
-            ]
-
-            foreach (storedWeapon in weapons)
-            {
-                if ( !storedWeapon.name.len() ) continue
-                printl(storedWeapon.name + " " + storedWeapon.weaponType)
-                if( storedWeapon.weaponType == eStoredWeaponType.main)
-                    player.GiveWeapon( storedWeapon.name, storedWeapon.inventoryIndex, storedWeapon.mods )
-                else
-                    player.GiveOffhandWeapon( storedWeapon.name, storedWeapon.inventoryIndex, storedWeapon.mods )
-            }
-            player.SetActiveWeaponBySlot(eActiveInventorySlot.mainHand, WEAPON_INVENTORY_SLOT_PRIMARY_0)
-        }
-        else 
-        {
-            if(!player.p.storedWeapons.len())
-            {
-                DecideRespawnPlayer(player, true)
-                CharSelect(player) 
-            }
-            else
-            {
-                DecideRespawnPlayer(player, false)
-                CharSelect(player)
-                GiveWeaponsFromStoredArray(player, player.p.storedWeapons)
-            }
-            
-        }
-    }
-    
-    SetPlayerSettings(player, TDM_PLAYER_SETTINGS)
-    PlayerRestoreHP(player, 100, Equipment_GetDefaultShieldHP())
-                
-    TpPlayerToSpawnPoint(player)
-    thread GrantSpawnImmunity(player, 3)
-}
 
 
 entity function CreateBubbleBoundary(LocationSettings location)
@@ -525,7 +606,9 @@ void function MonitorBubbleBoundary(entity bubbleShield, vector bubbleCenter, fl
 
 void function PlayerRestoreHP(entity player, float health, float shields)
 {
-    player.SetHealth( health )
+    float newHP = player.GetHealth() + health //maybefixed
+    if (newHP > 100) newHP = 100
+    player.SetHealth( newHP )
     Inventory_SetPlayerEquipment(player, "helmet_pickup_lv4_abilities", "helmet")
 
     if(shields == 0) return;
@@ -542,7 +625,7 @@ void function PlayerRestoreHP(entity player, float health, float shields)
 void function GrantSpawnImmunity(entity player, float duration)
 {
     if(!IsValid(player)) return;
-    MakeInvincible(player)
+    //MakeInvincible(player)
     wait duration
     if(!IsValid(player)) return;
     ClearInvincible(player)
@@ -683,7 +766,6 @@ bool function ClientCommand_GiveWeapon(entity player, array<string> args)
 
 
 
-
 void function ControlPointTriggerSetup()
 {
     entity controlpoint = CreateEntity("trigger_cylinder")
@@ -713,11 +795,11 @@ void function ControlPointTriggerSetup()
             controlpoint.SetBelowHeight(50)
             controlpoint.SetOrigin(<29265,10405,-3475>)
             break;
-        case(8): //Thermal
-            controlpoint.SetRadius(300)
-            controlpoint.SetAboveHeight(200)
-            controlpoint.SetBelowHeight(50)
-            controlpoint.SetOrigin(< -200097, -20531.63, -4202.88>)
+        case(8): //Tower Small
+            controlpoint.SetRadius(230)
+            controlpoint.SetAboveHeight(150)
+            controlpoint.SetBelowHeight(20)
+            controlpoint.SetOrigin(< -4450.46, 27529.90, -3337.32>)
 
     }
     DispatchSpawn(controlpoint)
@@ -730,7 +812,7 @@ void function ControlPointTriggerSetup()
     circle.kv.CollisionGroup = 0
 
 
-
+    circle.SetScriptName("controlPoint")
     DispatchSpawn( circle )
 
 
@@ -765,7 +847,7 @@ void function controlPointLogic(entity controlpoint, entity circle)
     //while(true)
     while(GetGameState() == eGameState.Playing)
     {
-        wait 1
+        wait 0.75
         int imc_count = 0
         int mil_count = 0
         foreach (player in GetPlayerArray_Alive())
@@ -796,15 +878,34 @@ void function controlPointLogic(entity controlpoint, entity circle)
 
         if (imc_count > 0 && mil_count == 0 && capStatus != "IMC")
         {
-            if(capProgress >= -1.0) capProgress = capProgress - 0.2  
+            if(capProgress >= -1.0) capProgress = capProgress - 0.25  
         }
         if (mil_count > 0 && imc_count == 0 && capStatus != "MIL")
         {
             //Make capture notifications here
-            if(capProgress <= 1.0) capProgress = capProgress + 0.2
+            if(capProgress <= 1.0) capProgress = capProgress + 0.25
         } 
-        if(capProgress <= -1.0) capStatus = "IMC"
-        if(capProgress >= 1.0) capStatus = "MIL"
+        if(capProgress <= -1.0 && capStatus != "IMC")
+        { 
+            capStatus = "IMC"
+            foreach (player in GetPlayerArray()) {
+                if (player.GetTeam() == TEAM_MILITIA) Message(player, "Enemy captured the point", "", 3, "") // ADD NICE SOUND
+                if (player.GetTeam() == TEAM_IMC) Message(player, "You captured the point", "", 3, "") // ADD NICE SOUND
+            }                 
+        }
+
+
+
+        if(capProgress >= 1.0 && capStatus != "MIL")
+        {
+            capStatus = "MIL"
+            foreach (player in GetPlayerArray()) {
+                if (player.GetTeam() == TEAM_MILITIA) Message(player, "You captured the point", "", 3, "") // ADD NICE SOUND
+                if (player.GetTeam() == TEAM_IMC) Message(player, "Enemy captured the point", "", 3, "") // ADD NICE SOUND
+
+            }        
+        }
+
 
         if(imc_count !=0 && mil_count !=0 && capStatus=="neutral") capStatus="contested"
 
@@ -862,14 +963,19 @@ void function checkIfWon(int score, int team)
         string teamname = ""
         foreach( entity player in GetPlayerArray() )
         {
-            if (team == 2) teamname = "Red"
-            if (team == 3) teamname = "Yellow"
+            if (team == 2) teamname = "Yellow"
+            if (team == 3) teamname = "Red"
             thread EmitSoundOnEntityOnlyToPlayer( player, player, "diag_ap_aiNotify_winnerFound" )
             Message(player, teamname + " team has won the game!","", 6,"")
-            MakeInvincible(player)
+            //MakeInvincible(player)
             HolsterAndDisableWeapons( player )
         }
-        wait 10
+        wait 6
+        foreach (player in GetPlayerArray())
+        {
+            Message(player,"- FINAL SCOREBOARD -", "\n         Name: K | D | KD | Damage \n \n" + ScoreboardFinal(), 15, "UI_Menu_RoundSummary_Results")
+        }
+        wait 12
         file.tdmState = eTDMState.WINNER_DECIDED
         SetGameState(eGameState.MapVoting)
     } 
@@ -880,47 +986,246 @@ void function spawnDeathbox(entity player)
 
 {    
     entity box = SURVIVAL_CreateDeathBox(player, true)
-    //Does nothing
-    //box.Highlight_ShowOutline( 10.0 )
-    //box.Highlight_SetParam( HIGHLIGHT_CONTEXT_NEUTRAL, 1, <999, 1, 0> ) 
-    
+    //box.EndSignal("")
+
 
     LootData data = SURVIVAL_Loot_GetLootDataByRef("armor_pickup_lv3")
-
     entity drop = SpawnGenericLoot( data.ref, box.GetOrigin(), <0,0,0>, 1 )
 
     AddToDeathBox(drop,box)
+
+
+    array<entity> lootArray = box.GetLinkEntArray()
+
+
+    float destroyWhen = Time() + 30
+    while(IsValid(box))
+    {
+    if (box.GetLinkEntArray()[0] != lootArray[0]) box.Destroy() 
+    if(Time() > destroyWhen) box.Destroy()
+    wait 1
+    }
 }
 
 
 void function CharSelect(entity player)
 {
-    entity dummy = CreateEntity( "npc_dummie" )
-    SetSpawnOption_AISettings( dummy, "npc_dummie_combat" )
-    DispatchSpawn(dummy)
-
-
-    ItemFlavor playerCharacter = LoadoutSlot_GetItemFlavor( ToEHI( dummy ), Loadout_CharacterClass() )
-    ItemFlavor skin = LoadoutSlot_GetItemFlavor( ToEHI( dummy ), Loadout_CharacterSkin( playerCharacter ) )
-
-    asset bodyModel = CharacterSkin_GetBodyModel(skin)
-    asset armsModel = CharacterSkin_GetArmsModel(skin)
-
-
-
-
 
     file.characters = clone GetAllCharacters()
     ItemFlavor Picked = file.characters[file.Picked]
     CharacterSelect_AssignCharacter( ToEHI( player ), Picked )
-    player.SetBodyModelOverride(bodyModel)
-    player.SetBodyModelOverride(armsModel)
-    player.SetModel( $"mdl/humans/class/medium/combat_dummie_medium.rmdl" )
+
+    player.SetBodyModelOverride( $"mdl/humans/class/medium/pilot_medium_generic.rmdl" ) //Dummy body
+    player.SetArmsModelOverride( $"mdl/Weapons/arms/pov_pilot_light_wraith.rmdl") //Wraith arms
+    //player.SetSkin(player.GetTeam())
+
     if(player.GetTeam() == TEAM_MILITIA) player.SetSkin(1)
-    if(player.GetTeam() == TEAM_IMC) player.SetSkin(4)   
-
-
+    if(player.GetTeam() == TEAM_IMC) player.SetSkin(4)  
 }
 
 
-//
+/*   _____    _____    ____    _____    ______   ____     ____               _____    _____  
+  / ____|  / ____|  / __ \  |  __ \  |  ____| |  _ \   / __ \      /\     |  __ \  |  __ \ 
+ | (___   | |      | |  | | | |__) | | |__    | |_) | | |  | |    /  \    | |__) | | |  | |
+  \___ \  | |      | |  | | |  _  /  |  __|   |  _ <  | |  | |   / /\ \   |  _  /  | |  | |
+  ____) | | |____  | |__| | | | \ \  | |____  | |_) | | |__| |  / ____ \  | | \ \  | |__| |
+ |_____/   \_____|  \____/  |_|  \_\ |______| |____/   \____/  /_/    \_\ |_|  \_\ |_____/ 
+                                                                                           
+                                                                                           */
+
+
+
+entity function GetBestPlayer() 
+{
+    
+    int bestScore = 0
+    entity bestPlayer
+
+    foreach(player in GetPlayerArray()) {
+        if(!IsValid(player)) continue
+        if (player.GetPlayerGameStat( PGS_KILLS ) > bestScore) {
+            bestScore = player.GetPlayerGameStat( PGS_KILLS )
+            bestPlayer = player
+            
+        }
+    }
+    return bestPlayer
+}
+
+int function GetBestPlayerScore() 
+{
+    int bestScore = 0
+    foreach(player in GetPlayerArray()) {
+        if(!IsValid(player)) continue
+        if (player.GetPlayerGameStat( PGS_KILLS ) > bestScore) bestScore = player.GetPlayerGameStat( PGS_KILLS )
+    }
+    return bestScore
+}
+
+string function GetBestPlayerName()
+
+{
+    entity player = GetBestPlayer()
+    if(!IsValid(player)) return "-still nobody-"
+    string champion = player.GetPlayerName()
+    return champion
+}
+
+float function getkd(int kills, int deaths)
+{
+    float kd
+    if(deaths == 0) return kills.tofloat();
+    kd = kills.tofloat() / deaths.tofloat()
+    return kd
+}
+
+string function Scoreboard()
+//Este solo muestra los tres primeros
+//Thanks marumaru（vesslanG）#3285
+{
+array <PlayerInfo> playersInfo = []
+        foreach(player in GetPlayerArray())
+        {
+            PlayerInfo p
+            p.name = player.GetPlayerName()
+            p.team = player.GetTeam()
+            p.score = player.GetPlayerGameStat( PGS_KILLS )
+            p.deaths = player.GetPlayerGameStat( PGS_DEATHS )
+            p.kd = getkd(p.score,p.deaths)
+            playersInfo.append(p)
+        }
+        playersInfo.sort(ComparePlayerInfo)
+        
+        string msg = ""
+        for(int i = 0; i < playersInfo.len(); i++)
+        {   
+            PlayerInfo p = playersInfo[i]
+            switch(i)
+            {
+                case 0:
+                    msg = msg + "1. " + p.name + ":   " + p.score + " | " + p.deaths + " | " + p.kd + "\n"
+                    break
+                case 1:
+                    msg = msg + "2. " + p.name + ":   " + p.score + " | " + p.deaths + " | " + p.kd + "\n"
+                    break
+                case 2:
+                    msg = msg + "3. " + p.name + ":   " + p.score + " | " + p.deaths + " | " + p.kd + "\n"
+                    break
+                default:
+                    break
+            }
+        }
+        return msg
+}
+    
+string function ScoreboardFinal()
+//Este muestra el scoreboard completo
+//Thanks marumaru（vesslanG）#3285
+{
+array<PlayerInfo> playersInfo = []
+        foreach(player in GetPlayerArray())
+        {
+            PlayerInfo p
+            p.name = player.GetPlayerName()
+            p.team = player.GetTeam()
+            p.score = player.GetPlayerGameStat( PGS_KILLS )
+            p.deaths = player.GetPlayerGameStat( PGS_DEATHS )
+            p.kd = getkd(p.score,p.deaths)
+            p.damage = int(player.p.playerDamageDealt)
+            p.lastLatency = int(player.GetLatency()* 1000)
+            playersInfo.append(p)
+        }
+        playersInfo.sort(ComparePlayerInfo)
+        string msg = ""
+        for(int i = 0; i < playersInfo.len(); i++)
+        {   
+            PlayerInfo p = playersInfo[i]
+            switch(i)
+            {
+                case 0:
+                     msg = msg + "1. " + p.name + ":   " + p.score + " | " + p.deaths + " | " + p.kd + " | " + p.damage + "\n"
+                    break
+                case 1:
+                    msg = msg + "2. " + p.name + ":   " + p.score + " | " + p.deaths + " | " + p.kd + " | " + p.damage + "\n"
+                    break
+                case 2:
+                    msg = msg + "3. " + p.name + ":   " + p.score + " | " + p.deaths + " | " + p.kd + " | " + p.damage + "\n"
+                    break
+                default:
+                    msg = msg + p.name + ":   " + p.score + " | " + p.deaths + " | " + p.kd + " | " + p.damage + "\n"
+                    break
+            }
+        }
+        return msg
+}
+    
+int function ComparePlayerInfo(PlayerInfo a, PlayerInfo b)
+{
+    if(a.score < b.score) return 1;
+    else if(a.score > b.score) return -1;
+    return 0; 
+}
+
+void function ResetAllPlayerStats()
+{
+    foreach(player in GetPlayerArray()) {
+        if(!IsValid(player)) continue
+        ResetPlayerStats(player)
+    }
+}
+
+void function ResetPlayerStats(entity player) 
+{
+    player.SetPlayerGameStat( PGS_SCORE, 0 )
+    player.SetPlayerGameStat( PGS_DEATHS, 0)
+    player.SetPlayerGameStat( PGS_TITAN_KILLS, 0)
+    player.SetPlayerGameStat( PGS_KILLS, 0)
+    player.SetPlayerGameStat( PGS_PILOT_KILLS, 0)
+    player.SetPlayerGameStat( PGS_ASSISTS, 0)
+    player.SetPlayerGameStat( PGS_ASSAULT_SCORE, 0)
+    player.SetPlayerGameStat( PGS_DEFENSE_SCORE, 0)
+    player.SetPlayerGameStat( PGS_ELIMINATED, 0)
+}
+
+string function helpMessage() 
+{
+    return "\n\n          CONSOLE COMMANDS:\n- ready\n- change_team\n- scoreboard \n- latency\n- select_map (host only)\n- end_game (host only)"
+}
+
+
+
+string function LatencyBoard()
+//By Café
+{
+array<PlayerInfo> playersInfo = []
+        foreach(player in GetPlayerArray())
+        {
+            PlayerInfo p
+            p.name = player.GetPlayerName()
+            p.score = player.GetPlayerGameStat( PGS_KILLS )
+            p.lastLatency = int(player.GetLatency()* 1000) - 40
+            playersInfo.append(p)
+        }
+        playersInfo.sort(ComparePlayerInfo)
+        string msg = ""
+        for(int i = 0; i < playersInfo.len(); i++)
+        {
+            PlayerInfo p = playersInfo[i]
+            switch(i)
+            {
+                case 0:
+                     msg = msg + "1. " + p.name + ":   " + p.lastLatency  + "ms \n"
+                    break
+                case 1:
+                    msg = msg + "2. " + p.name + ":   " + p.lastLatency  + "ms \n"
+                    break
+                case 2:
+                    msg = msg + "3. " + p.name + ":   " + p.lastLatency  + "ms \n"
+                    break
+                default:
+                    msg = msg + p.name + ":   " + p.lastLatency + "ms \n"
+                    break
+            }
+        }
+        return msg
+}

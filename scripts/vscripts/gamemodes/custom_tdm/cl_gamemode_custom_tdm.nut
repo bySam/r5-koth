@@ -4,7 +4,7 @@ global function ServerCallback_TDM_DoAnnouncement
 global function ServerCallback_TDM_SetSelectedLocation
 global function ServerCallback_TDM_DoLocationIntroCutscene
 global function ServerCallback_TDM_PlayerKilled
-global function ServerCallback_PointCreated
+//ServerCallback_PointCreatedglobal function ServerCallback_PointCreated
 
 global function Cl_RegisterLocation
 
@@ -17,9 +17,19 @@ struct {
 } file;
 
 
+struct PlayerInfo 
+{
+    string name
+    int team
+    int score
+}
+
 
 void function Cl_CustomTDM_Init()
 {
+    print("Cl_CustomTDM_Init")
+    AddCreateCallback("prop_dynamic", propDynamicCreated)
+    //Add
 }
 
 void function Cl_RegisterLocation(LocationSettings locationSettings)
@@ -193,42 +203,37 @@ void function ServerCallback_TDM_PlayerKilled() //rename???
         RuiSetString( file.scoreRui, "messageText",GameRules_GetTeamScore(TEAM_IMC) + "%  |  " + GameRules_GetTeamScore(TEAM_MILITIA) + "%" );
 }
 
-void function ServerCallback_PointCreated(entity circle)
-{
-    //circle.EndSignal( "OnDestroy" )
 
+
+void function propDynamicCreated( entity ent )
+{
+  if ( ent.GetScriptName() != "controlPoint" ) return
+
+
+    //circle.EndSignal( "OnDestroy" )
 
     entity localViewPlayer = GetLocalViewPlayer()
 
-    //var rui = AddOverheadIcon( parentEnt, $"mdl/Robots/mobile_hardpoint/mobile_hardpoint_static.rmdl", false, $"mdl/extras_3" )
-    var rui = AddOverheadIcon( circle, RESPAWN_BEACON_ICON, false, $"ui/overhead_icon_respawn_beacon.rpak" )
+    var rui = AddOverheadIcon( ent, RESPAWN_BEACON_ICON, false, $"ui/overhead_icon_respawn_beacon.rpak" )
     RuiSetFloat2( rui, "iconSize", <60,60,0> )
-    //RuiSetFloat3(rui, "iconColor", SrgbToLinear(<255, 255, 0>))
     RuiSetFloat( rui, "distanceFade", 50000 )
     RuiSetBool( rui, "adsFade", true )
     RuiSetString( rui, "hint", "Point" )
 
 
-
-    /*var ruix = CreateCockpitRui( $"ui/health_use_progress.rpak", HUD_Z_BASE )
+    /*
+    var ruix = CreateCockpitRui(    , HUD_Z_BASE )
     RuiSetBool( ruix, "isVisible", true )
     //RuiSetImage( ruix, "", icon )
     RuiSetGameTime( ruix, "startTime", Time() )
     RuiSetGameTime( ruix, "endTime", Time() + 5 )
-    RuiSetString( ruix, "hintKeyboardMouse", "Capturing point" )*/
-
-
+    RuiSetString( ruix, "hintKeyboardMouse", "Capturing point" )
+    print("abc")*/
 
     //WaitForever()
+
+    
 }
-
-
-
-//void function ServerCallback_PointCapturing()
-
-
-
-
 
 
 
@@ -246,5 +251,6 @@ var function CreateTemporarySpawnRUI(entity parentEnt, float duration)
 
     parentEnt.Destroy()
 }
+
 
 
