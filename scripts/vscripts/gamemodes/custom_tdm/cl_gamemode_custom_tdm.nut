@@ -212,13 +212,34 @@ void function propDynamicCreated( entity ent )
 
     //circle.EndSignal( "OnDestroy" )
 
-    entity localViewPlayer = GetLocalViewPlayer()
+    //var rui = AddOverheadIcon( ent, RESPAWN_BEACON_ICON, false, $"ui/overhead_icon_respawn_beacon.rpak" )
+    //var rui = AddOverheadIcon( ent, RESPAWN_BEACON_ICON, false, $"ui/overhead_icon_respawn_beacon.rpak" )
 
-    var rui = AddOverheadIcon( ent, RESPAWN_BEACON_ICON, false, $"ui/overhead_icon_respawn_beacon.rpak" )
-    RuiSetFloat2( rui, "iconSize", <60,60,0> )
+
+    entity localViewPlayer = GetLocalViewPlayer()
+    vector pos = ent.GetOrigin() + ( ent.GetUpVector() * 1 )
+    var rui = CreateCockpitRui( $"ui/dirty_bomb_marker_icons.rpak", RuiCalculateDistanceSortKey( localViewPlayer.EyePosition(), pos ) )
+    RuiSetGameTime( rui, "startTime", Time() )
+    RuiTrackFloat3( rui, "pos", ent, RUI_TRACK_OVERHEAD_FOLLOW )
+    RuiKeepSortKeyUpdated( rui, true, "pos" )
+
+    asset icon = $"rui/hud/ultimate_icons/ultimate_wattson_in_world"
+
+    RuiSetImage( rui, "bombImage", icon )
+    RuiSetImage( rui, "triggeredImage", icon )
+
+
+
+
+
+
+
+
+
+    /*RuiSetFloat2( rui, "iconSize", <60,60,0> )
     RuiSetFloat( rui, "distanceFade", 50000 )
     RuiSetBool( rui, "adsFade", true )
-    RuiSetString( rui, "hint", "Point" )
+    RuiSetString( rui, "hint", "Point" )*/
 
 
     /*
@@ -229,6 +250,19 @@ void function propDynamicCreated( entity ent )
     RuiSetGameTime( ruix, "endTime", Time() + 5 )
     RuiSetString( ruix, "hintKeyboardMouse", "Capturing point" )
     print("abc")*/
+
+
+    /*UISize screenSize = GetScreenSize()
+    var screenAlignmentTopo = RuiTopology_CreatePlane( <(screenSize.width * -0.3),( screenSize.height * -0.52 ), 0>, <float( screenSize.width ), 0, 0>, <0, float( screenSize.height ), 0>, false )
+    var ruix = RuiCreate( $"ui/announcement_quick_right.rpak", screenAlignmentTopo, RUI_DRAW_HUD, RUI_SORT_SCREENFADE + 1 )
+    
+    RuiSetGameTime( ruix, "startTime", Time() )
+    RuiSetString( ruix, "messageText", "Contested!" )
+    RuiSetString( ruix, "messageSubText", "")
+    RuiSetFloat( ruix, "duration", 9999999 )
+    RuiSetFloat3( ruix, "eventColor", SrgbToLinear( <255, 255, 0> ) )*/
+
+
 
     //WaitForever()
 

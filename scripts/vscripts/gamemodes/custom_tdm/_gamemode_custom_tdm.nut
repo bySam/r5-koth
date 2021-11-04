@@ -5,6 +5,7 @@ table playersInfo
 
 
 global table<entity,bool> readyList = {}
+global array<entity> respawnQueue = []
 global int choice = 6 //Default map pick = Ambush
 
 struct PlayerInfo 
@@ -17,9 +18,6 @@ struct PlayerInfo
     int damage
     int lastLatency
 }
-
-
-
 
 enum eTDMState
 {
@@ -43,6 +41,14 @@ struct {
     int maxTeams
 } file;
 
+/*   _____          __  __ ______   _      ____   ____  _____  
+  / ____|   /\   |  \/  |  ____| | |    / __ \ / __ \|  __ \ 
+ | |  __   /  \  | \  / | |__    | |   | |  | | |  | | |__) |
+ | | |_ | / /\ \ | |\/| |  __|   | |   | |  | | |  | |  ___/ 
+ | |__| |/ ____ \| |  | | |____  | |___| |__| | |__| | |     
+  \_____/_/    \_\_|  |_|______| |______\____/ \____/|_|     
+                                                             
+                                                             */
 
 void function _CustomTDM_Init()
 {
@@ -70,31 +76,6 @@ void function _CustomTDM_Init()
 
 }
 
-void function _OnPropDynamicSpawned(entity prop)
-{
-    file.playerSpawnedProps.append(prop)
-
-
-
-    /*
-    //foreach(player in GetPlayerArray())
-    //{
-        //Remote_CallFunction_NonReplay(player, "ServerCallback_PointCreated", prop) //what the fuck is this
-    //}*/
-}
-
-
-void function DestroyPlayerProps()
-{
-    foreach(prop in file.playerSpawnedProps)
-    {
-        if(IsValid(prop))
-            prop.Destroy()
-    }
-    file.playerSpawnedProps.clear()
-}
-
-
 void function _RegisterLocation(LocationSettings locationSettings)
 {
     file.locationSettings.append(locationSettings)
@@ -120,6 +101,7 @@ LocPair function _GetVotingLocation()
     unreachable
 }
 
+
 void function RunTDM()
 {
     WaitForGameState(eGameState.Playing)
@@ -131,9 +113,6 @@ void function RunTDM()
     WaitForever()
 }
 
-
-
-
 void function VotingPhase()
 {
     {
@@ -142,7 +121,6 @@ void function VotingPhase()
         {
             readyList.player = false
         }
-
         DestroyPlayerProps();
         SetGameState(eGameState.MapVoting)
 
@@ -157,31 +135,35 @@ void function VotingPhase()
             _HandleRespawn(player)
             MakeInvincible(player)
     		HolsterAndDisableWeapons( player )
-            //Remote_CallFunction_NonReplay(player, "ServerCallback_TDM_DoAnnouncement", 6, eTDMAnnounce.VOTING_PHASE)
-            Message(player, "Pre-game", helpMessage(), 15)
+            Remote_CallFunction_NonReplay(player, "ServerCallback_TDM_DoAnnouncement", 3, eTDMAnnounce.VOTING_PHASE)
             TpPlayerToSpawnPoint(player)
             player.UnfreezeControlsOnServer();      
         }
+        wait 4
+        foreach(player in GetPlayerArray())
+        {
+            thread Message(player, "Pre-game", helpMessage(), 15)
+        }
 
-        //HAHAHAH 
 
 
          //Maybe working
-        while(true)
+        while(GetGameState() == eGameState.MapVoting)
         {
             int ready_count = 0
             foreach(item in readyList)
             {
                 if(item == true) ready_count ++
+
             }
+            wait 1     
             if(ready_count >= GetPlayerArray().len())
             {
-                continue;
+                break
             }
-        wait 1      
         }
-        
         file.selectedLocation = file.locationSettings[choice]
+        thread SpawnWave()
         StartRound()
     }
 }   
@@ -189,7 +171,7 @@ void function VotingPhase()
 void function StartRound() 
 {
     SetGameState(eGameState.Playing)
-    int countdown = 10
+    int countdown = 5
     foreach(player in GetPlayerArray())
     {   
         print("\n\n\n\n" + IsValid(player))
@@ -233,18 +215,9 @@ void function StartRound()
     DeployAndEnableWeapons(player)
     player.UnforceStand()  
     player.UnfreezeControlsOnServer()
-    }   
-        
-
-
-            //AddPlayerMovementEventCallback(player, ePlayerMovementEvents.TOUCH_GROUND, _HandleRespawnOnLand)
-        
-        
+    }           
 
     AddSpawnCallback("prop_dynamic", _OnPropDynamicSpawned)
-    //  AddSpawnCallback("trigger_cylinder", _OnPropDynamicSpawned)
-
-    
     ControlPointTriggerSetup()
     file.bubbleBoundary = CreateBubbleBoundary(file.selectedLocation) 
 
@@ -261,10 +234,247 @@ void function StartRound()
 		WaitFrame()
 	}
     file.tdmState = eTDMState.IN_PROGRESS
-
     if(IsValid(file.bubbleBoundary)) file.bubbleBoundary.Destroy()
+    VotingPhase()
 }
 
+
+void function _OnPlayerConnected(entity player)
+{
+    if(!IsValid(player)) return
+    readyList.player <- false
+
+    //Give passive regen (pilot blood)
+    GivePassive(player, ePassives.PAS_PILOT_BLOOD)
+    SetPlayerSettings(player, TDM_PLAYER_SETTINGS)
+
+    if(!IsAlive(player))
+    {
+        _HandleRespawn(player)
+    }
+
+    
+    switch(GetGameState())
+    {
+
+    case eGameState.WaitingForPlayers:
+        print("\n\n\n\n\n\n WATING FOR PLAYERS \n\n\n\n\n\n")
+        //player.FreezeControlsOnServer()
+        break
+    case eGameState.Playing:
+        print("\n\n\n\n\n\n PLAYING \n\n\n\n\n\n")
+        player.UnfreezeControlsOnServer();
+        break
+    case eGameState.MapVoting:
+        print("\n\n\n\n\n\n MAP VOTING \n\n\n\n\n\n")
+        //if(!IsValid(player)) continue;
+        //_HandleRespawn(player)
+        //MakeInvincible(player)
+        //HolsterAndDisableWeapons( player )
+        player.SetThirdPersonShoulderModeOn()
+        HolsterAndDisableWeapons( player )
+        player.UnforceStand()  
+        player.UnfreezeControlsOnServer()
+        Message(player, "Pre-game", helpMessage(), 15)
+        //TpPlayerToSpawnPoint(player)
+        //player.UnfreezeControlsOnServer();  
+        break
+    default: 
+        print("\n\n\n\n\n\n DEFAULT \n\n\n\n\n\n")
+        break
+    }
+}
+
+void function _OnPlayerDied(entity victim, entity attacker, var damageInfo) 
+{
+    switch(GetGameState())
+    {
+    case eGameState.Playing:
+
+        // What happens to victim 
+        void functionref() victimHandleFunc = void function() : (victim, attacker, damageInfo) {
+            if(!IsValid(victim)) return
+            thread spawnDeathbox(victim)
+            victim.p.storedWeapons = StoreWeapons(victim)
+            if(IsValid(attacker)) Message(victim,"Killed by " + attacker.GetPlayerName(), "", 2.5, "")
+            int reservedTime = 2
+            wait reservedTime
+            if(Spectator_GetReplayIsEnabled() && IsValid(victim) && ShouldSetObserverTarget( attacker ))
+            {
+                victim.SetObserverTarget( attacker )
+                victim.SetSpecReplayDelay( Spectator_GetReplayDelay() )
+                victim.StartObserverMode( OBS_MODE_IN_EYE )
+                Remote_CallFunction_NonReplay(victim, "ServerCallback_KillReplayHud_Activate")
+            }
+            
+            wait max(0, Deathmatch_GetRespawnDelay() - reservedTime)
+             
+
+            if(IsValid(victim) )
+            {
+                //_HandleRespawn( victim )
+                respawnQueue.append(victim)
+            }
+
+        }
+
+        
+        // What happens to attacker
+        void functionref() attackerHandleFunc = void function() : (victim, attacker, damageInfo)  {
+            if(IsValid(attacker) && attacker.IsPlayer() && IsAlive(attacker) && attacker != victim)
+            {
+                PlayerRestoreHP(attacker, 25, Equipment_GetDefaultShieldHP())
+            }
+        }
+        
+        thread victimHandleFunc()
+        thread attackerHandleFunc()
+        break
+    default:
+
+    }
+}
+
+void function controlPointLogic(entity controlpoint, entity circle)
+{
+    string capStatus = "neutral"
+    float capProgress = 0.0
+    //while(true)
+    while(GetGameState() == eGameState.Playing)
+    {
+        wait 0.75
+        int imc_count = 0
+        int mil_count = 0
+        foreach (player in GetPlayerArray_Alive())
+        {   
+            if (!player.IsPlayer()) continue
+            if(!IsValid(controlpoint)) continue
+            
+            
+            if(Distance(player.GetOrigin(), controlpoint.GetOrigin()) < controlpoint.GetRadius())
+            {
+                switch (player.GetTeam()) 
+                {
+                    case TEAM_IMC:
+                        imc_count++
+                        break;
+                    case TEAM_MILITIA:
+                        mil_count++
+                        break;
+                    default:
+                        break;
+                }    
+                if (imc_count > 0 && mil_count == 0 && capStatus != "IMC") thread EmitSoundOnEntityOnlyToPlayer( player, player, "" ) //ADD NICE SOUND
+                if (mil_count > 0 && imc_count == 0 && capStatus != "MIL") thread EmitSoundOnEntityOnlyToPlayer( player, player, "" ) //ADD NMICE SOUND
+
+            }
+        }
+                
+
+        if (imc_count > 0 && mil_count == 0 && capStatus != "IMC")
+        {
+            if(capProgress >= -1.0) capProgress = capProgress - 0.25  
+        }
+        if (mil_count > 0 && imc_count == 0 && capStatus != "MIL")
+        {
+            //Make capture notifications here
+            if(capProgress <= 1.0) capProgress = capProgress + 0.25
+        } 
+        if(capProgress <= -1.0 && capStatus != "IMC")
+        { 
+            capStatus = "IMC"
+            foreach (player in GetPlayerArray()) {
+                if (player.GetTeam() == TEAM_MILITIA) Message(player, "Enemy captured the point", "", 3, "ui_callerid_chime_enemy") // ADD NICE SOUND
+                if (player.GetTeam() == TEAM_IMC) Message(player, "You captured the point", "", 3, "ui_callerid_chime_friendly") // ADD NICE SOUND
+            }                 
+        }
+
+
+
+        if(capProgress >= 1.0 && capStatus != "MIL")
+        {
+            capStatus = "MIL"
+            foreach (player in GetPlayerArray()) {
+                if (player.GetTeam() == TEAM_MILITIA) Message(player, "You captured the point", "", 3, "ui_callerid_chime_friendly") // ADD NICE SOUND
+                if (player.GetTeam() == TEAM_IMC) Message(player, "Enemy captured the point", "", 3, "ui_callerid_chime_enemy") // ADD NICE SOUND
+
+            }        
+        }
+
+
+        if(imc_count !=0 && mil_count !=0 && capStatus=="neutral") capStatus="contested"
+
+
+        if(capStatus == "IMC" && GetGameState() == eGameState.Playing)
+        {
+            int score = GameRules_GetTeamScore(TEAM_IMC)
+            if (!(score == 99 && mil_count != 0))
+            {            
+            checkIfWon(score, TEAM_MILITIA)
+            score ++
+            GameRules_SetTeamScore(TEAM_IMC,score)
+            if(IsValid(circle)) circle.kv.rendercolor = "20 20 80"
+            }
+        }
+
+        if(capStatus == "MIL" && GetGameState() == eGameState.Playing)
+        {   
+            int score = GameRules_GetTeamScore(TEAM_MILITIA)
+            if (!(score == 99 && imc_count != 0))
+            {   
+                checkIfWon(score, TEAM_MILITIA)
+                score ++
+                GameRules_SetTeamScore(TEAM_MILITIA,score)
+                if(IsValid(circle)) circle.kv.rendercolor = "80 20 20"
+            }
+
+        }
+
+        if(capStatus == "neutral" && GetGameState() == eGameState.Playing)
+        {   
+            if(IsValid(circle)) circle.kv.rendercolor = "110 110 110"
+        }
+
+        if(capStatus == "contested" && GetGameState() == eGameState.Playing)
+        {   
+            if(IsValid(circle)) circle.kv.rendercolor = "80 80 15"
+        }
+
+
+
+
+        foreach(a in GetPlayerArray())
+        {
+            Remote_CallFunction_NonReplay(a, "ServerCallback_TDM_PlayerKilled") //lol
+        }
+    }   
+}
+
+
+void function checkIfWon(int score, int team)
+{
+    if(score >= SCORE_GOAL_TO_WIN)
+    {
+        string teamname = ""
+        foreach( entity player in GetPlayerArray() )
+        {
+            if(team == 0) teamname = "No"
+            if (team == TEAM_IMC) teamname = "Blue" //RNG ROFL?
+            if (team == TEAM_MILITIA) teamname = "Red" //RNG ROFL?
+            thread EmitSoundOnEntityOnlyToPlayer( player, player, "diag_ap_aiNotify_winnerFound" )
+            Message(player, teamname + " team has won the game!","", 6,"")
+            //MakeInvincible(player)
+            HolsterAndDisableWeapons( player )
+        }
+        wait 6
+        foreach (player in GetPlayerArray())
+        {
+            Message(player,"FINAL SCOREBOARD -", "\n         Name: K | D | KD | Damage \n \n" + ScoreboardFinal(), 15, "UI_Menu_RoundSummary_Results")
+        }
+        wait 12
+        file.tdmState = eTDMState.WINNER_DECIDED
+    } 
+}
 
 
 
@@ -287,18 +497,33 @@ bool function ClientCommand_EndGame(entity player, array<string> args)
     if( !IsServer() ) return false;
     if(IsValid(file.bubbleBoundary)) file.bubbleBoundary.Destroy()
 
-    file.tdmState = eTDMState.WINNER_DECIDED
-    Message(player," FINAL SCOREBOARD ", "\n         Name: K | D | KD \n \n" + ScoreboardFinal(), 12, "UI_Menu_RoundSummary_Results")
-    SetGameState(eGameState.MapVoting) //Is this necessary?
+    //file.tdmState = eTDMState.WINNER_DECIDED
+    //Message(player," FINAL SCOREBOARD ", "\n         Name: K | D | KD \n \n" + ScoreboardFinal(), 12, "UI_Menu_RoundSummary_Results")
+    thread checkIfWon(SCORE_GOAL_TO_WIN,0)
     return true
 }
 
 bool function ClientCommand_Ready(entity player, array<string> args)
 {
-    if (readyList.player == false) readyList.player <- true
-    else readyList.player <- false
-    print("\n\n\nReady: " + readyList.player)
-    print(readyList)
+    if (readyList.player == false){ 
+    readyList.player <- true
+    thread EmitSoundOnEntityOnlyToPlayer( player, player, "UI_Menu_accept" )
+    }
+    else 
+    {
+        readyList.player <- false
+        thread EmitSoundOnEntityOnlyToPlayer( player, player, "UI_Menu_back" )
+    }
+    int ready_count = 0
+    foreach(item in readyList)
+    {
+        if(item == true) ready_count ++
+
+    }
+
+    thread Message(player,"Status", "Ready status: " + readyList.player + "\nTotal: " + ready_count + "/" + GetPlayerArray().len() + " ready" , 2.75)
+    //print("\n\n\nReady: " + readyList.player)
+    //print(readyList)
     return true
 }
 
@@ -308,7 +533,8 @@ bool function ClientCommand_ChangeTeam(entity player, array<string> args)
     if (team == TEAM_MILITIA) SetTeam(player, TEAM_IMC)
     if (team == TEAM_IMC) SetTeam(player, TEAM_MILITIA)
     CharSelect(player)
-    print("\n\n\nYou're now on team: " + team)
+    player.TakeOffhandWeapon(OFFHAND_TACTICAL)
+    player.TakeOffhandWeapon(OFFHAND_ULTIMATE)
     return true
 }
 
@@ -335,14 +561,16 @@ bool function ClientCommand_SelectMap(entity player, array<string> args)
         case "towersmall":
             choice = 8
             break
-
+        case "towerbig":
+            choice = 9
+            break
         default: 
-            print("\n\n\nInvalid map! LavaCity/Overlook/Ambush")
+            print("\n\n\nInvalid map! Lavacity/Overlook/Ambush/Towersmall/Towerbig")
             break
         }
     } 
     if(args.len() == 0) {
-          print("\n\n\nYou must choose a map! LavaCity/Overlook/Ambush")
+          print("\n\n\nYou must choose a map! Lavacity/Overlook/Ambush/Towersmall/Towerbig")
       }  
     return true
 
@@ -387,106 +615,14 @@ return true
 
 
 
-void function _OnPlayerConnected(entity player)
-{
-    if(!IsValid(player)) return
-    readyList.player <- false
-
-    //Give passive regen (pilot blood)
-    GivePassive(player, ePassives.PAS_PILOT_BLOOD)
-    SetPlayerSettings(player, TDM_PLAYER_SETTINGS)
-
-    if(!IsAlive(player))
-    {
-        _HandleRespawn(player)
-    }
-
-    
-    switch(GetGameState())
-    {
-
-    case eGameState.WaitingForPlayers:
-        //player.FreezeControlsOnServer()
-        break
-    case eGameState.Playing:
-        player.UnfreezeControlsOnServer();
-        break
-    case eGameState.MapVoting:
-        print("\n\n\n" + IsValid(player) + "\n\n\n")
-        //if(!IsValid(player)) continue;
-        _HandleRespawn(player)
-        MakeInvincible(player)
-        HolsterAndDisableWeapons( player )
-        Message(player, "Pre-game", helpMessage(), 15)
-        TpPlayerToSpawnPoint(player)
-        player.UnfreezeControlsOnServer();  
-        break
-    default: 
-        break
-    }
-}
-
-
-
-
-void function _OnPlayerDied(entity victim, entity attacker, var damageInfo) 
-{
-
-    
-    switch(GetGameState())
-    {
-    case eGameState.Playing:
-
-        // What happens to victim 
-        print("0")
-        void functionref() victimHandleFunc = void function() : (victim, attacker, damageInfo) {
-            print("1")
-            if(!IsValid(victim)) return
-            thread spawnDeathbox(victim)
-            print("2")
-            victim.p.storedWeapons = StoreWeapons(victim)
-            if(IsValid(attacker)) Message(victim,"Killed by " + attacker, "", 1.5, "")
-            print("a")
-            int reservedTime = 2
-            wait reservedTime
-            print("b")
-            if(Spectator_GetReplayIsEnabled() && IsValid(victim) && ShouldSetObserverTarget( attacker ))
-            {
-                victim.SetObserverTarget( attacker )
-                victim.SetSpecReplayDelay( Spectator_GetReplayDelay() )
-                victim.StartObserverMode( OBS_MODE_IN_EYE )
-                Remote_CallFunction_NonReplay(victim, "ServerCallback_KillReplayHud_Activate")
-            }
-            
-            print("c")
-            wait max(0, Deathmatch_GetRespawnDelay() - reservedTime)
-            print("d")
-             
-
-            if(IsValid(victim) )
-            {
-                print("e")
-                _HandleRespawn( victim )
-            }
-
-        }
-
-        
-        // What happens to attacker
-        void functionref() attackerHandleFunc = void function() : (victim, attacker, damageInfo)  {
-            if(IsValid(attacker) && attacker.IsPlayer() && IsAlive(attacker) && attacker != victim)
-            {
-                PlayerRestoreHP(attacker, 25, Equipment_GetDefaultShieldHP())
-            }
-        }
-        
-        thread victimHandleFunc()
-        thread attackerHandleFunc()
-        break
-    default:
-
-    }
-}
+/*   _____ _____  ______       _______ _____ _   _  _____    _____ _    _ _____ _______ 
+  / ____|  __ \|  ____|   /\|__   __|_   _| \ | |/ ____|  / ____| |  | |_   _|__   __|
+ | |    | |__) | |__     /  \  | |    | | |  \| | |  __  | (___ | |__| | | |    | |   
+ | |    |  _  /|  __|   / /\ \ | |    | | | . ` | | |_ |  \___ \|  __  | | |    | |   
+ | |____| | \ \| |____ / ____ \| |   _| |_| |\  | |__| |  ____) | |  | |_| |_   | |   
+  \_____|_|  \_\______/_/    \_\_|  |_____|_| \_|\_____| |_____/|_|  |_|_____|  |_|   
+                                                                                      
+                                                                                      */
 
 
 
@@ -507,7 +643,7 @@ entity function CreateBubbleBoundary(LocationSettings location)
     foreach(LocPair spawn in spawns)
     {
         if(Distance(spawn.origin, bubbleCenter) > bubbleRadius)
-        bubbleRadius = Distance(spawn.origin, bubbleCenter)
+        bubbleRadius = Distance(spawn.origin, bubbleCenter)*0.9
     }
     
     bubbleRadius += GetCurrentPlaylistVarFloat("bubble_radius_padding", 800)
@@ -580,6 +716,11 @@ void function ControlPointTriggerSetup()
             controlpoint.SetAboveHeight(150)
             controlpoint.SetBelowHeight(20)
             controlpoint.SetOrigin(< -4450.46, 27529.90, -3337.32>)
+        case(9): //Tower Big
+            controlpoint.SetRadius(270)
+            controlpoint.SetAboveHeight(150)
+            controlpoint.SetBelowHeight(20)
+            controlpoint.SetOrigin(< -20097.85, 12574.88, -3594.01>)
 
     }
     DispatchSpawn(controlpoint)
@@ -600,153 +741,6 @@ void function ControlPointTriggerSetup()
     thread controlPointLogic(controlpoint, circle)
 }
 
-
-
-void function controlPointLogic(entity controlpoint, entity circle)
-{
-    string capStatus = "neutral"
-    float capProgress = 0.0
-    //while(true)
-    while(GetGameState() == eGameState.Playing)
-    {
-        wait 0.75
-        int imc_count = 0
-        int mil_count = 0
-        foreach (player in GetPlayerArray_Alive())
-        {   
-            if (!player.IsPlayer()) continue
-            if(!IsValid(controlpoint)) continue
-            
-            
-            if(Distance(player.GetOrigin(), controlpoint.GetOrigin()) < controlpoint.GetRadius())
-            {
-                switch (player.GetTeam()) 
-                {
-                    case TEAM_IMC:
-                        imc_count++
-                        break;
-                    case TEAM_MILITIA:
-                        mil_count++
-                        break;
-                    default:
-                        break;
-                }    
-                if (imc_count > 0 && mil_count == 0 && capStatus != "IMC") thread EmitSoundOnEntityOnlyToPlayer( player, player, "player_hitbeep" )
-                if (mil_count > 0 && imc_count == 0 && capStatus != "MIL") thread EmitSoundOnEntityOnlyToPlayer( player, player, "player_hitbeep" )
-
-            }
-        }
-                
-
-        if (imc_count > 0 && mil_count == 0 && capStatus != "IMC")
-        {
-            if(capProgress >= -1.0) capProgress = capProgress - 0.25  
-        }
-        if (mil_count > 0 && imc_count == 0 && capStatus != "MIL")
-        {
-            //Make capture notifications here
-            if(capProgress <= 1.0) capProgress = capProgress + 0.25
-        } 
-        if(capProgress <= -1.0 && capStatus != "IMC")
-        { 
-            capStatus = "IMC"
-            foreach (player in GetPlayerArray()) {
-                if (player.GetTeam() == TEAM_MILITIA) Message(player, "Enemy captured the point", "", 3, "") // ADD NICE SOUND
-                if (player.GetTeam() == TEAM_IMC) Message(player, "You captured the point", "", 3, "") // ADD NICE SOUND
-            }                 
-        }
-
-
-
-        if(capProgress >= 1.0 && capStatus != "MIL")
-        {
-            capStatus = "MIL"
-            foreach (player in GetPlayerArray()) {
-                if (player.GetTeam() == TEAM_MILITIA) Message(player, "You captured the point", "", 3, "") // ADD NICE SOUND
-                if (player.GetTeam() == TEAM_IMC) Message(player, "Enemy captured the point", "", 3, "") // ADD NICE SOUND
-
-            }        
-        }
-
-
-        if(imc_count !=0 && mil_count !=0 && capStatus=="neutral") capStatus="contested"
-
-
-        if(capStatus == "IMC" && GetGameState() == eGameState.Playing)
-        {
-            int score = GameRules_GetTeamScore(TEAM_IMC)
-            if (!(score == 99 && mil_count != 0))
-            {            
-            checkIfWon(score, TEAM_MILITIA)
-            score ++
-            GameRules_SetTeamScore(TEAM_IMC,score)
-            if(IsValid(circle)) circle.kv.rendercolor = "100 100 15"
-            }
-        }
-
-        if(capStatus == "MIL" && GetGameState() == eGameState.Playing)
-        {   
-            int score = GameRules_GetTeamScore(TEAM_MILITIA)
-            if (!(score == 99 && imc_count != 0))
-            {   
-                checkIfWon(score, TEAM_MILITIA)
-                score ++
-                GameRules_SetTeamScore(TEAM_MILITIA,score)
-                if(IsValid(circle)) circle.kv.rendercolor = "80 20 20"
-            }
-
-        }
-
-        if(capStatus == "neutral" && GetGameState() == eGameState.Playing)
-        {   
-            if(IsValid(circle)) circle.kv.rendercolor = "110 110 110"
-        }
-
-        if(capStatus == "contested" && GetGameState() == eGameState.Playing)
-        {   
-            if(IsValid(circle)) circle.kv.rendercolor = "80 80 5"
-        }
-
-
-
-
-        foreach(a in GetPlayerArray())
-        {
-            Remote_CallFunction_NonReplay(a, "ServerCallback_TDM_PlayerKilled") //lol
-        }
-    }   
-}
-
-
-void function checkIfWon(int score, int team)
-{
-    if(score >= SCORE_GOAL_TO_WIN)
-    {
-        string teamname = ""
-        foreach( entity player in GetPlayerArray() )
-        {
-            if (team == 2) teamname = "Yellow"
-            if (team == 3) teamname = "Red"
-            thread EmitSoundOnEntityOnlyToPlayer( player, player, "diag_ap_aiNotify_winnerFound" )
-            Message(player, teamname + " team has won the game!","", 6,"")
-            //MakeInvincible(player)
-            HolsterAndDisableWeapons( player )
-        }
-        wait 6
-        foreach (player in GetPlayerArray())
-        {
-            Message(player,"- FINAL SCOREBOARD -", "\n         Name: K | D | KD | Damage \n \n" + ScoreboardFinal(), 15, "UI_Menu_RoundSummary_Results")
-        }
-        wait 12
-        file.tdmState = eTDMState.WINNER_DECIDED
-        SetGameState(eGameState.MapVoting)
-    } 
-}
-
-
-
-
-
 /*
    _____ _____   __          ___   _   ______ _    _ _   _  _____ _______ _____ ____  _   _  _____ 
   / ____|  __ \ /\ \        / / \ | | |  ____| |  | | \ | |/ ____|__   __|_   _/ __ \| \ | |/ ____|
@@ -755,10 +749,27 @@ void function checkIfWon(int score, int team)
   ____) | |  / ____ \  /\  /  | |\  | | |    | |__| | |\  | |____   | |   _| || |__| | |\  |____) |
  |_____/|_| /_/    \_\/  \/   |_| \_| |_|     \____/|_| \_|\_____|  |_|  |_____\____/|_| \_|_____/                                                                                                  
 */                                                                                           
+
+void function SpawnWave()
+{
+    while(true)
+    {
+        print(respawnQueue)
+        foreach(player in respawnQueue) 
+        {
+            print(player)
+            _HandleRespawn(player)
+            respawnQueue.remove(respawnQueue.find(player))
+        }
+        wait 8
+    }
+}
+
+
 void function _HandleRespawn(entity player, bool forceGive = false)
 {
     if(!IsValid(player)) return
-
+    CharSelect(player)
     if( player.IsObserver())
     {
         player.StopObserverMode()
@@ -982,7 +993,7 @@ void function PlayerRestoreHP(entity player, float health, float shields)
 
 void function CharSelect(entity player)
 {
-
+    print("CharSelect!")
     file.characters = clone GetAllCharacters()
     ItemFlavor Picked = file.characters[file.Picked]
     CharacterSelect_AssignCharacter( ToEHI( player ), Picked )
@@ -991,8 +1002,7 @@ void function CharSelect(entity player)
     //player.SetArmsModelOverride( $"mdl/Weapons/arms/pov_pilot_light_wraith.rmdl") //Wraith arms
 
     if(player.GetTeam() == TEAM_MILITIA) player.SetSkin(1)
-    if(player.GetTeam() == TEAM_IMC) player.SetSkin(4)  
-    //player.GiveOffhandWeapon("", OFFHAND_TACTICAL)
+    if(player.GetTeam() == TEAM_IMC) player.SetSkin(3)  
 
 }
 
@@ -1004,6 +1014,31 @@ void function ScreenFadeToFromBlack(entity player, float fadeTime = 1, float hol
     wait fadeTime
     if( IsValid( player ) )
         ScreenFadeFromBlack(player, fadeTime / 2, holdTime / 2)
+}
+
+
+void function _OnPropDynamicSpawned(entity prop)
+{
+    file.playerSpawnedProps.append(prop)
+
+
+
+    /*
+    //foreach(player in GetPlayerArray())
+    //{
+        //Remote_CallFunction_NonReplay(player, "ServerCallback_PointCreated", prop) //what the fuck is this
+    //}*/
+}
+
+
+void function DestroyPlayerProps()
+{
+    foreach(prop in file.playerSpawnedProps)
+    {
+        if(IsValid(prop))
+            prop.Destroy()
+    }
+    file.playerSpawnedProps.clear()
 }
 
 
